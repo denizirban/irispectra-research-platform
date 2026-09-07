@@ -149,7 +149,7 @@ export function IrisIntake() {
   const [sideErrors, setSideErrors] = useState<Record<Side, string>>({ left: "", right: "" })
   const [phase, setPhase] = useState<"idle" | "opening" | "uploading" | "finalising" | "done">("idle")
   const [error, setError] = useState("")
-  const [result, setResult] = useState<{ reference: string; notification: "sent" | "pending"; metrics: Array<Record<string, string | number>> } | null>(null)
+  const [result, setResult] = useState<{ reference: string; metrics: Array<Record<string, unknown>> } | null>(null)
   const idempotency = useRef(crypto.randomUUID())
   const inputRefs = { left: useRef<HTMLInputElement>(null), right: useRef<HTMLInputElement>(null) }
   const busy = phase !== "idle" && phase !== "done"
@@ -221,17 +221,40 @@ export function IrisIntake() {
       }
       setPhase("finalising")
       const completed = await json("/api/intake/complete", { submissionId: opened.submissionId })
-      setResult({ reference: completed.reference, notification: completed.notification, metrics: completed.acquisitionMetrics || [] }); setPhase("done")
+      setResult({ reference: completed.reference, metrics: completed.acquisitionMetrics || [] }); setPhase("done")
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Submission failed."); setPhase("idle") }
   }
 
   if (result) return <div className="form-wrap"><section className="form-section result-card">
-    <p className="eyebrow">SECURE STORAGE CONFIRMED</p><h2>Submission received.</h2>
-    <p>Your reference is <code>{result.reference}</code>. Save it for withdrawal or researcher review.</p>
-    <table className="evidence-table"><thead><tr><th>Side</th><th>Brightness</th><th>Glare</th><th>Sharpness</th><th>Status</th></tr></thead><tbody>{result.metrics.map((metric, index) => <tr key={index}><td>{String(metric.laterality)}</td><td>{String(metric.brightness_mean_0_255 ?? "—")}</td><td>{metric.glare_fraction !== undefined ? `${(Number(metric.glare_fraction) * 100).toFixed(1)}%` : "—"}</td><td>{String(metric.laplacian_abs_mean ?? "—")}</td><td><span className="tag measured">pixel measured</span></td></tr>)}</tbody></table>
-    <div className="status">Structural morphology pipeline: queued experimental analysis. Crypt, furrow and vascular-network claims are not reported until validated.</div>
-    <div className={result.notification === "sent" ? "status success" : "status error"}>{result.notification === "sent" ? "Confirmation email sent." : "Images are stored, but email delivery is pending. Keep the reference above."}</div>
-    <p className="fine-print">This confirms storage and queueing only—not a scientific finding or medical result.</p>
+    <p className="eyebrow">MEASUREMENT COMPLETE · STORED PRIVATELY</p><h2>Your measurements are ready.</h2>
+    <p>No email is required to view this screen. Save the reference below for withdrawal or an optional researcher review.</p>
+    <code>{result.reference}</code>
+
+    <div className="result-section">
+      <div className="result-section-head"><div><span>01</span><h3>Acquisition quality</h3></div><p>Properties of the photograph—not properties of your body.</p></div>
+      <div className="table-scroll"><table className="evidence-table"><thead><tr><th>Eye</th><th>Brightness</th><th>Glare</th><th>Sharpness</th><th>Evidence</th></tr></thead><tbody>{result.metrics.map((metric, index) => <tr key={index}><td>{String(metric.laterality)}</td><td>{String(metric.brightness_mean_0_255 ?? "—")}</td><td>{metric.glare_fraction !== undefined ? `${(Number(metric.glare_fraction) * 100).toFixed(1)}%` : "—"}</td><td>{String(metric.laplacian_abs_mean ?? "—")}</td><td><span className="tag measured">pixel measured</span></td></tr>)}</tbody></table></div>
+    </div>
+
+    <div className="result-section structural-result">
+      <div className="result-section-head"><div><span>02</span><h3>Immediate structural measurements</h3></div><p>Computed only inside the calibrated, unmasked iris annulus.</p></div>
+      <div className="table-scroll"><table className="evidence-table"><thead><tr><th>Eye</th><th>Usable annulus</th><th>Texture entropy</th><th>Contrast</th><th>Radial structure</th><th>Concentric structure</th></tr></thead><tbody>{result.metrics.map((metric, index) => <tr key={index}>
+        <td>{String(metric.laterality)}</td>
+        <td>{metric.usable_annulus_fraction !== undefined ? `${(Number(metric.usable_annulus_fraction) * 100).toFixed(1)}%` : "—"}</td>
+        <td>{metric.texture_entropy_0_1 !== undefined ? Number(metric.texture_entropy_0_1).toFixed(3) : "—"}</td>
+        <td>{metric.luminance_contrast_0_1 !== undefined ? Number(metric.luminance_contrast_0_1).toFixed(3) : "—"}</td>
+        <td>{metric.radial_structure_0_1 !== undefined ? Number(metric.radial_structure_0_1).toFixed(3) : "—"}</td>
+        <td>{metric.concentric_structure_0_1 !== undefined ? Number(metric.concentric_structure_0_1).toFixed(3) : "—"}</td>
+      </tr>)}</tbody></table></div>
+      <div className="metric-legend">
+        <p><strong>Texture entropy</strong><span>Variation of light and dark texture in the annulus.</span></p>
+        <p><strong>Radial structure</strong><span>Orientation excess consistent with centre-to-edge streaks.</span></p>
+        <p><strong>Concentric structure</strong><span>Orientation excess consistent with ring-like changes.</span></p>
+      </div>
+    </div>
+
+    <div className="status success">Immediate image measurement completed. Your original images and calibration remain stored under the consent choices you selected.</div>
+    <div className="status">Crypt, furrow and vascular-network detection is a separate validation stage. The site does not invent those labels from an unvalidated detector.</div>
+    <p className="fine-print">These are experimental image descriptors, not diagnosis, biological age, organ mapping, personality analysis, or proof of a developmental mechanism.</p>
   </section></div>
 
   return <form className="form-wrap" onSubmit={submit}>

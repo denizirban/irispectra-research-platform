@@ -42,6 +42,68 @@ function parseSegmentation(value: FormDataEntryValue | null): ManualSegmentation
   }
 }
 
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value))
+const rounded = (value: number) => Number(value.toFixed(3))
+
+function measureAnnulus(data: Buffer, width: number, height: number, segmentation: ManualSegmentation) {
+  const irisX = width * segmentation.irisCenterX / 100
+  const irisY = height * segmentation.irisCenterY / 100
+  const pupilX = irisX + width * segmentation.pupilOffsetX / 100
+  const pupilY = irisY + height * segmentation.pupilOffsetY / 100
+  const irisRadius = width * segmentation.irisRadius / 100
+  const pupilRadius = width * segmentation.pupilRadius / 100
+  const upperLimit = height * segmentation.upperOcclusion / 100
+  const lowerLimit = height * (1 - segmentation.lowerOcclusion / 100)
+  const histogram = new Uint32Array(16)
+  const isotropicProjection = 2 / Math.PI
+  let candidate = 0, usable = 0, sum = 0, sumSquares = 0
+  let gradientWeight = 0, tangentialWeight = 0, radialWeight = 0
+
+  for (let y = 1; y < height - 1; y++) for (let x = 1; x < width - 1; x++) {
+    const irisDx = x - irisX, irisDy = y - irisY
+    const pupilDx = x - pupilX, pupilDy = y - pupilY
+    const irisDistance = Math.hypot(irisDx, irisDy)
+    const pupilDistance = Math.hypot(pupilDx, pupilDy)
+    if (irisDistance >= irisRadius || pupilDistance <= pupilRadius) continue
+    candidate++
+    const value = data[y * width + x]
+    if (y < upperLimit || y > lowerLimit || value > 245) continue
+    usable++; sum += value; sumSquares += value * value; histogram[Math.min(15, value >> 4)]++
+    if (irisDistance < 2 || irisDistance > irisRadius - 2 || pupilDistance < pupilRadius + 2) continue
+    const gx = data[y * width + x + 1] - data[y * width + x - 1]
+    const gy = data[(y + 1) * width + x] - data[(y - 1) * width + x]
+    const magnitude = Math.hypot(gx, gy)
+    if (magnitude < 2) continue
+    const rx = irisDx / irisDistance, ry = irisDy / irisDistance
+    gradientWeight += magnitude
+    radialWeight += Math.abs(gx * rx + gy * ry)
+    tangentialWeight += Math.abs(gx * -ry + gy * rx)
+  }
+
+  let entropy = 0
+  if (usable) for (const count of histogram) if (count) {
+    const probability = count / usable
+    entropy -= probability * Math.log2(probability)
+  }
+  const mean = usable ? sum / usable : 0
+  const variance = usable ? Math.max(0, sumSquares / usable - mean * mean) : 0
+  const normalizeOrientation = (projection: number) => clamp01((projection - isotropicProjection) / (1 - isotropicProjection))
+  const tangentialProjection = gradientWeight ? tangentialWeight / gradientWeight : isotropicProjection
+  const radialProjection = gradientWeight ? radialWeight / gradientWeight : isotropicProjection
+
+  return {
+    method: "annular-orientation-0.2",
+    analysis_width_px: width,
+    analysis_height_px: height,
+    usable_annulus_fraction: rounded(candidate ? usable / candidate : 0),
+    texture_entropy_0_1: rounded(entropy / 4),
+    luminance_contrast_0_1: rounded(Math.sqrt(variance) / 255),
+    fine_detail_energy_0_1: rounded(clamp01(gradientWeight / Math.max(1, usable) / 255)),
+    radial_structure_0_1: rounded(normalizeOrientation(tangentialProjection)),
+    concentric_structure_0_1: rounded(normalizeOrientation(radialProjection)),
+  }
+}
+
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Request origin rejected." }, { status: 403 })
   if (!rateLimit(req, 8)) return NextResponse.json({ error: "Too many uploads. Try again shortly." }, { status: 429 })
@@ -93,6 +155,12 @@ export async function POST(req: NextRequest) {
       laplacian_abs_mean: Number((sharpness / laplaceCount).toFixed(2)),
       manual_segmentation: { ...manualSegmentation, coordinate_unit: "percent_of_image" },
     }
+    const analysed = await sharp(bytes)
+      .resize({ width: 512, height: 512, fit: "inside", withoutEnlargement: true })
+      .greyscale()
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    const structuralMetrics = measureAnnulus(analysed.data, analysed.info.width, analysed.info.height, manualSegmentation)
     const extension = metadata.format === "jpeg" ? "jpg" : metadata.format
     storedPath = `${submissionId}/${randomUUID()}.${extension}`
     await uploadPrivateObject(storedPath, bytes, decodedType)
@@ -107,9 +175,9 @@ export async function POST(req: NextRequest) {
       checksum_sha256: checksum,
       width_px: metadata.width,
       height_px: metadata.height,
-      quality_metrics: qualityMetrics,
+      quality_metrics: { ...qualityMetrics, ...structuralMetrics },
     })
-    return NextResponse.json({ imageId: record.id, width: metadata.width, height: metadata.height, quality: qualityMetrics })
+    return NextResponse.json({ imageId: record.id, width: metadata.width, height: metadata.height, quality: qualityMetrics, structure: structuralMetrics })
   } catch (error) {
     if (storedPath) await deletePrivateObject(storedPath).catch(() => undefined)
     console.error("[irispectra] upload failed", error)

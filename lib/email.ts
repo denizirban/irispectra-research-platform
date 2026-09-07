@@ -17,22 +17,13 @@ export async function sendSubmissionNotice(input: SubmissionNotice): Promise<"se
     secure: true,
     auth: { user, pass: password },
   })
-  await Promise.all([
-    transporter.sendMail({
-      from: user,
-      to: input.email,
-      replyTo: admin,
-      subject: "Irispectra research submission securely stored",
-      text: `Hello ${input.firstName},\n\nYour research submission ${input.id} and ${input.imageCount} iris image(s) were securely stored. Structural measurement is experimental and is not medical diagnosis. You may request withdrawal at https://irispectra.com/withdraw.\n\nIrispectra`,
-    }),
-    transporter.sendMail({
-      from: user,
-      to: admin,
-      replyTo: input.email,
-      subject: `New Irispectra research submission · ${input.id}`,
-      text: `A new consented research submission was securely stored.\nReference: ${input.id}\nImages: ${input.imageCount}\nParticipant email: ${input.email}\nReview private data only in the authorised Supabase project.`,
-    }),
-  ])
+  await transporter.sendMail({
+    from: user,
+    to: admin,
+    replyTo: input.email,
+    subject: `New Irispectra research submission · ${input.id}`,
+    text: `A new consented research submission was securely stored.\nReference: ${input.id}\nImages: ${input.imageCount}\nParticipant: ${input.firstName}\nParticipant email: ${input.email}\nReview private data only in the authorised Supabase project.`,
+  })
   return "sent"
 }
 
