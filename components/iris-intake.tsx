@@ -27,13 +27,19 @@ const defaultCalibration: Calibration = {
 }
 
 async function inspectImage(file: File): Promise<Quality> {
-  const bitmap = await createImageBitmap(file)
+  const source = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+    const objectUrl = URL.createObjectURL(file)
+    image.onload = () => { URL.revokeObjectURL(objectUrl); resolve(image) }
+    image.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error("Image decode failed")) }
+    image.src = objectUrl
+  })
   const size = 320
   const canvas = document.createElement("canvas")
   canvas.width = size
   canvas.height = size
   const ctx = canvas.getContext("2d", { willReadFrequently: true })!
-  ctx.drawImage(bitmap, 0, 0, size, size)
+  ctx.drawImage(source, 0, 0, size, size)
   const pixels = ctx.getImageData(0, 0, size, size).data
   let luminance = 0, glare = 0, laplace = 0, count = 0
   const gray = new Float32Array(size * size)
@@ -49,8 +55,7 @@ async function inspectImage(file: File): Promise<Quality> {
     laplace += Math.abs(4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - size] - gray[i + size])
     count++
   }
-  const width = bitmap.width, height = bitmap.height
-  bitmap.close()
+  const width = source.naturalWidth, height = source.naturalHeight
   return { width, height, brightness: luminance / gray.length, glare: 100 * glare / gray.length, sharpness: laplace / count }
 }
 
