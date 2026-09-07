@@ -45,7 +45,7 @@ export async function sendWithdrawalLink(email: string, url: string) {
   })
 }
 
-export async function sendReviewRequest(input: { submissionId: string; email: string; note: string }) {
+export async function sendReviewRequest(input: { submissionId: string; email: string; note: string; measurements: Array<{ laterality: string; quality_metrics: Record<string, unknown> }> }) {
   const password = process.env.SMTP_PASS
   if (!password) return "pending" as const
   const user = process.env.SMTP_USER || "hello@irispectra.com"
@@ -56,7 +56,7 @@ export async function sendReviewRequest(input: { submissionId: string; email: st
   await transporter.sendMail({
     from: user, to: admin, replyTo: input.email,
     subject: `Researcher review request · ${input.submissionId}`,
-    text: `Optional $170 researcher-review request.\nSubmission: ${input.submissionId}\nParticipant email: ${input.email}\nNote: ${input.note || "—"}\n\nVerify scope and availability before sending any payment link.`,
+    text: `Optional $170 researcher-review request.\nSubmission: ${input.submissionId}\nParticipant email: ${input.email}\nQuestion: ${input.note}\n\nStored measurements:\n${JSON.stringify(input.measurements, null, 2)}\n\nVerify scope and availability before sending any payment link.`,
   })
   return "sent" as const
 }

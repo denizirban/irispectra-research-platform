@@ -254,6 +254,10 @@ export function IrisIntake() {
 
     <div className="status success">Immediate image measurement completed. Your original images and calibration remain stored under the consent choices you selected.</div>
     <div className="status">Crypt, furrow and vascular-network detection is a separate validation stage. The site does not invent those labels from an unvalidated detector.</div>
+    <section className="interpretation-cta" aria-labelledby="interpretation-title">
+      <div><span>OPTIONAL RESEARCHER REVIEW</span><h3 id="interpretation-title">What could these measurements mean?</h3><p>Send this result and a specific question for a human interpretation of the visible morphology, uncertainty and model limits. No diagnosis or organ mapping.</p></div>
+      <a className="btn primary" href={`/review?reference=${encodeURIComponent(result.reference)}`}>Request interpretation · $170</a>
+    </section>
     <p className="fine-print">These are experimental image descriptors, not diagnosis, biological age, organ mapping, personality analysis, or proof of a developmental mechanism.</p>
   </section></div>
 

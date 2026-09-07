@@ -165,6 +165,12 @@ h3 { font-size: 20px; margin: 0 0 10px; }
 .table-scroll { overflow-x: auto; }
 .table-scroll .evidence-table { min-width: 720px; }
 .structural-result .evidence-table td:not(:first-child) { font-family: "Irispectra Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+.interpretation-cta { margin-top: 28px; border: 1px solid var(--ink); background: var(--acid); padding: clamp(22px, 4vw, 42px); display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 28px; }
+.interpretation-cta span { font: 700 12px "Irispectra Mono", ui-monospace, monospace; letter-spacing: .08em; }
+.interpretation-cta h3 { margin: 8px 0 10px; font-size: clamp(28px, 3vw, 42px); line-height: 1; }
+.interpretation-cta p { margin: 0; max-width: 720px; }
+.interpretation-cta .btn { white-space: nowrap; }
+@media (max-width: 760px) { .interpretation-cta { grid-template-columns: 1fr; align-items: start; } .interpretation-cta .btn { width: 100%; } }
 .metric-legend { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--line); }
 .metric-legend p { display: grid; gap: 6px; margin: 0; padding: 16px; border-right: 1px solid var(--line); }
 .metric-legend p:last-child { border-right: 0; }
