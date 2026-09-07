@@ -18,9 +18,21 @@ export async function POST(req: NextRequest) {
     const submissions = await db<Array<{ id: string; first_name: string; participant_email: string; status: string }>>(`submissions?id=eq.${submissionId}&select=id,first_name,participant_email,status`)
     const submission = submissions[0]
     if (!submission) return NextResponse.json({ error: "Submission not found." }, { status: 404 })
-    if (submission.status !== "analysed") {
+    // `queued` is the deployed database's accepted post-upload state. The
+    // immediate descriptor run itself is already complete; the submission can
+    // remain queued for any later researcher review. Check the run directly so
+    // a retry after a partial failure never creates duplicate analysis rows.
+    const runs = await db<Array<{ id: string }>>(
+      `analysis_runs?submission_id=eq.${submissionId}&model_family=eq.annular-image-descriptors&model_version=eq.0.2&select=id&limit=1`,
+    )
+    const createdRun = !runs[0]
+    if (createdRun) {
       await insert("analysis_runs", { submission_id: submissionId, status: "completed", completed_at: new Date().toISOString(), model_family: "annular-image-descriptors", model_version: "0.2", pipeline_version: "2026-09-07", diagnostics: { scope: "non-diagnostic immediate structural measurements" } })
-      await update(`submissions?id=eq.${submissionId}`, { status: "analysed" })
+    }
+    if (submission.status !== "queued") {
+      await update(`submissions?id=eq.${submissionId}`, { status: "queued" })
+    }
+    if (createdRun) {
       await insert("audit_events", { submission_id: submissionId, actor_type: "participant", event_type: "submission_completed", metadata: { image_count: images.length } })
     }
     let notification: "sent" | "pending" = "pending"
