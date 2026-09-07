@@ -9,6 +9,39 @@ export const maxDuration = 30
 
 const accepted = new Set(["image/jpeg", "image/png", "image/webp"])
 
+type ManualSegmentation = {
+  irisCenterX: number
+  irisCenterY: number
+  pupilOffsetX: number
+  pupilOffsetY: number
+  pupilRadius: number
+  irisRadius: number
+  upperOcclusion: number
+  lowerOcclusion: number
+}
+
+function parseSegmentation(value: FormDataEntryValue | null): ManualSegmentation | null {
+  if (typeof value !== "string" || value.length > 1000) return null
+  try {
+    const candidate = JSON.parse(value) as Record<string, unknown>
+    const rules: Array<[keyof ManualSegmentation, number, number]> = [
+      ["irisCenterX", 20, 80], ["irisCenterY", 20, 80],
+      ["pupilOffsetX", -15, 15], ["pupilOffsetY", -15, 15],
+      ["pupilRadius", 3, 20], ["irisRadius", 14, 46],
+      ["upperOcclusion", 0, 35], ["lowerOcclusion", 0, 35],
+    ]
+    const parsed = {} as ManualSegmentation
+    for (const [key, min, max] of rules) {
+      const number = Number(candidate[key])
+      if (!Number.isFinite(number) || number < min || number > max) return null
+      parsed[key] = number
+    }
+    return parsed
+  } catch {
+    return null
+  }
+}
+
 export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ error: "Request origin rejected." }, { status: 403 })
   if (!rateLimit(req, 8)) return NextResponse.json({ error: "Too many uploads. Try again shortly." }, { status: 429 })
@@ -18,8 +51,12 @@ export async function POST(req: NextRequest) {
     const submissionId = String(form.get("submissionId") || "")
     const laterality = String(form.get("laterality") || "")
     const file = form.get("image")
+    const manualSegmentation = parseSegmentation(form.get("calibration"))
     if (!/^[0-9a-f-]{36}$/i.test(submissionId) || !["left", "right"].includes(laterality) || !(file instanceof File)) {
       return NextResponse.json({ error: "Invalid upload request." }, { status: 400 })
+    }
+    if (!manualSegmentation) {
+      return NextResponse.json({ error: "Confirm valid pupil, iris and exclusion geometry before upload." }, { status: 400 })
     }
     const submissions = await db<Array<{ id: string; status: string }>>(
       `submissions?id=eq.${encodeURIComponent(submissionId)}&select=id,status&limit=1`,
@@ -54,6 +91,7 @@ export async function POST(req: NextRequest) {
       brightness_mean_0_255: Number((brightness / preview.length).toFixed(2)),
       glare_fraction: Number((glare / preview.length).toFixed(4)),
       laplacian_abs_mean: Number((sharpness / laplaceCount).toFixed(2)),
+      manual_segmentation: { ...manualSegmentation, coordinate_unit: "percent_of_image" },
     }
     const extension = metadata.format === "jpeg" ? "jpg" : metadata.format
     storedPath = `${submissionId}/${randomUUID()}.${extension}`
