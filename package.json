@@ -1,0 +1,25 @@
+{
+  "name": "irispectra-research-platform",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "16.3.4",
+    "nodemailer": "^10.0.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "sharp": "^0.35.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/nodemailer": "^7.0.4",
+    "@types/react": "^19.2.5",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3"
+  }
+}
