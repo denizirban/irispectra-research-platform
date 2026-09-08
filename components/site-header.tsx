@@ -8,9 +8,9 @@ export function SiteHeader() {
         <span>irispectra</span>
       </Link>
       <nav aria-label="Primary navigation">
-        <Link href="/analyze">iris measurement</Link>
-        <Link href="/pupillometry">pupillometry</Link>
-        <Link href="/lab">morphogenesis lab</Link>
+        <Link href="/analyze">iris structure</Link>
+        <Link href="/pupillometry">pupil dynamics</Link>
+        <Link href="/lab">morphogenesis</Link>
         <Link href="/review">researcher review</Link>
       </nav>
     </header>
