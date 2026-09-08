@@ -68,7 +68,7 @@ function estimate(video: HTMLVideoElement, canvas: HTMLCanvasElement, percentile
   const fill = best.area / (componentWidth * componentHeight)
   const plausibleSize = componentWidth >= 10 && componentWidth <= 105 && componentHeight >= 8 && componentHeight <= 85
   const confidence = plausibleSize ? Math.min(1, aspect * .65 + Math.min(fill, .8) * .35) : 0
-  context.strokeStyle = confidence >= .55 ? "#c9ff31" : "#ff826f"; context.lineWidth = 3
+  context.strokeStyle = confidence >= .55 ? "#4caf7d" : "#c77b62"; context.lineWidth = 3
   context.strokeRect(best.minX, best.minY, componentWidth, componentHeight)
   return {
     diameter_px: plausibleSize ? Number((2 * Math.sqrt(best.area / Math.PI)).toFixed(2)) : null,
@@ -80,14 +80,14 @@ function estimate(video: HTMLVideoElement, canvas: HTMLCanvasElement, percentile
 function SignalChart({ samples }: { samples: Sample[] }) {
   const usable = samples.filter((sample) => sample.diameter_px !== null && sample.confidence >= .55)
   const baseline = median(usable.filter((sample) => sample.t_ms <= 3000).map((sample) => sample.diameter_px!))
-  if (!baseline || usable.length < 2) return <div className="signal-empty">Kayıt başladığında göreli pupil eğrisi burada görünecek.</div>
+  if (!baseline || usable.length < 2) return <div className="signal-empty">The relative pupil trace will appear here once recording begins.</div>
   const points = usable.map((sample) => {
     const x = 12 + (sample.t_ms / RECORDING_MS) * 576
     const relative = ((sample.diameter_px! - baseline) / baseline) * 100
     const y = 82 - Math.max(-18, Math.min(18, relative)) * 2.7
     return `${x.toFixed(1)},${y.toFixed(1)}`
   }).join(" ")
-  return <svg className="signal-chart" viewBox="0 0 600 164" role="img" aria-label="Zamana göre göreli pupil değişimi">
+  return <svg className="signal-chart" viewBox="0 0 600 164" role="img" aria-label="Relative pupil change over time">
     <line x1="12" y1="82" x2="588" y2="82" /><polyline points={points} />
     <text x="12" y="154">0 s</text><text x="548" y="154">15 s</text><text x="18" y="74">0%</text>
   </svg>
@@ -117,7 +117,7 @@ export function PupilProtocol() {
       if (videoRef.current) { videoRef.current.srcObject = media; await videoRef.current.play() }
       const available = (await navigator.mediaDevices.enumerateDevices()).filter((device) => device.kind === "videoinput")
       setDevices(available); setDeviceId(media.getVideoTracks()[0]?.getSettings().deviceId || requestedDeviceId || ""); setCamera("ready")
-    } catch { setCamera("error"); setMessage("Kamera açılamadı. Tarayıcı iznini kontrol edin ve HTTPS veya localhost kullanın.") }
+    } catch { setCamera("error"); setMessage("The camera could not be opened. Check browser permission and use HTTPS or localhost.") }
   }
 
   useEffect(() => {
@@ -131,7 +131,7 @@ export function PupilProtocol() {
           const t = now - recordingStartRef.current
           if (t >= RECORDING_MS) {
             recordingStartRef.current = null; setElapsed(RECORDING_MS); setRecording(false)
-            setMessage("15 saniyelik kayıt tamamlandı. Kaliteyi kontrol edip CSV dosyasını indirebilirsiniz.")
+            setMessage("The 15-second recording is complete. Review signal quality before exporting the CSV.")
           } else { setElapsed(t); setSamples((current) => [...current, { t_ms: Math.round(t), ...next }]) }
         }
       }
@@ -175,29 +175,29 @@ export function PupilProtocol() {
   }, [samples])
 
   return <div className="form-wrap pupil-prototype">
-    <section className="prototype-banner"><span>GÜVENLİ BAŞLANGIÇ · IR YOK · FLAŞ YOK</span><p>Bu sürüm sabit görünür ışıkta yalnızca göreli değişimi izler. Gözünüze kızılötesi LED veya ekran flaşı yöneltmez.</p></section>
-    <section className="form-section"><p className="eyebrow">01 · KAMERA</p><h2>iPhone Camera veya Mac kamerasını seçin.</h2>
-      <p>iPhone’u Mac’e Continuity Camera ile bağladıysanız önce “Kamerayı aç” deyin, sonra listeden iPhone Camera’yı seçin. Telefonu sabit tutun; tek gözünüz sarı ovali doldursun.</p>
-      <div className="camera-controls"><button className="btn primary" type="button" onClick={() => openCamera()} disabled={camera === "ready"}>Kamerayı aç</button>
-        <label className="camera-select"><span>Kamera kaynağı</span><select value={deviceId} onChange={(event) => { setDeviceId(event.target.value); void openCamera(event.target.value) }} disabled={camera !== "ready" || recording}>
-          {devices.length ? devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Kamera ${index + 1}`}</option>) : <option>Kamera izni sonrası görünür</option>}
-        </select></label><button className="btn" type="button" onClick={stopCamera} disabled={camera === "off"}>Kamerayı kapat</button></div>
+    <section className="prototype-banner"><span><i aria-hidden="true" />PASSIVE MODE · NO IR · NO FLASH</span><p>This version observes relative change under stable visible light. It does not direct an infrared LED or screen flash toward the eye.</p></section>
+    <section className="form-section"><p className="eyebrow">01 · CAMERA</p><h2>Select iPhone Camera or your Mac camera.</h2>
+      <p>If the iPhone is connected through Continuity Camera, enable camera access first and then select iPhone Camera from the list. Keep the phone fixed and let one eye fill the oval guide.</p>
+      <div className="camera-controls"><button className="btn primary" type="button" onClick={() => openCamera()} disabled={camera === "ready"}>Enable camera</button>
+        <label className="camera-select"><span>Camera source</span><select value={deviceId} onChange={(event) => { setDeviceId(event.target.value); void openCamera(event.target.value) }} disabled={camera !== "ready" || recording}>
+          {devices.length ? devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>) : <option>Available after camera permission</option>}
+        </select></label><button className="btn" type="button" onClick={stopCamera} disabled={camera === "off"}>Stop camera</button></div>
       {message && <div className="status success">{message}</div>}
     </section>
     <section className="pupil-grid">
-      <div className="camera-stage"><video ref={videoRef} muted playsInline /><div className="eye-guide" aria-hidden="true" /><span className="timer">CANLI · {camera.toUpperCase()}</span></div>
-      <div className="analysis-stage"><canvas ref={analysisRef} /><span className="timer">MERKEZ KIRPMA · {reading?.flag.replaceAll("_", " ").toUpperCase() || "BEKLİYOR"}</span></div>
+      <div className="camera-stage"><video ref={videoRef} muted playsInline /><div className="eye-guide" aria-hidden="true" /><span className="timer">LIVE · {camera.toUpperCase()}</span></div>
+      <div className="analysis-stage"><canvas ref={analysisRef} /><span className="timer">CENTRE CROP · {reading?.flag.replaceAll("_", " ").toUpperCase() || "WAITING"}</span></div>
     </section>
-    <section className="form-section"><p className="eyebrow">02 · ODAK VE EŞİK</p><h2>Yeşil kutu pupili takip edene kadar ayarlayın.</h2>
-      <label className="threshold-control"><span>Koyu alan yüzdeliği <output>%{percentile}</output></span><input type="range" min="4" max="22" value={percentile} onChange={(event) => setPercentile(Number(event.target.value))} /></label>
-      <div className="quality live-quality"><div><small>canlı güven</small><strong>{reading ? `${Math.round(reading.confidence * 100)}%` : "—"}</strong></div><div><small>ışık seviyesi</small><strong>{reading?.brightness ?? "—"}</strong></div><div><small>durum</small><strong>{reading?.confidence && reading.confidence >= .55 ? "izleniyor" : "ayarla"}</strong></div></div>
+    <section className="form-section"><p className="eyebrow">02 · FOCUS + THRESHOLD</p><h2>Adjust until the green box follows the pupil.</h2>
+      <label className="threshold-control"><span>Dark-region percentile <output>{percentile}%</output></span><input type="range" min="4" max="22" value={percentile} onChange={(event) => setPercentile(Number(event.target.value))} /></label>
+      <div className="quality live-quality"><div><small>live confidence</small><strong>{reading ? `${Math.round(reading.confidence * 100)}%` : "—"}</strong></div><div><small>light level</small><strong>{reading?.brightness ?? "—"}</strong></div><div><small>status</small><strong>{reading?.confidence && reading.confidence >= .55 ? "tracking" : "adjust"}</strong></div></div>
     </section>
-    <section className="form-section"><p className="eyebrow">03 · 15 SANİYE SABİT IŞIK KAYDI</p><h2>Bu ilk sürüm uyaran uygulamaz.</h2>
-      <label className="consent"><input type="checkbox" checked={safetyConfirmed} onChange={(event) => setSafetyConfirmed(event.target.checked)} /><span>Oda ışığı sabit; ekranda flaş yok. Rahatsızlık, ağrı veya görme değişikliği olursa hemen duracağım.<small>Bu bir araştırma prototipidir; tıbbi cihaz veya tanı aracı değildir.</small></span></label>
-      <div className="button-row"><button className="btn primary" type="button" onClick={beginRecording} disabled={camera !== "ready" || recording || !safetyConfirmed || (reading?.confidence ?? 0) < .55}>{recording ? `Kayıt · ${(elapsed / 1000).toFixed(1)} s` : "15 saniye kaydet"}</button><button className="btn" type="button" onClick={download} disabled={!samples.length || recording}>CSV indir</button></div>
+    <section className="form-section"><p className="eyebrow">03 · 15-SECOND STABLE-LIGHT RECORDING</p><h2>No light stimulus is applied in this first version.</h2>
+      <label className="consent"><input type="checkbox" checked={safetyConfirmed} onChange={(event) => setSafetyConfirmed(event.target.checked)} /><span>Room light is stable and there is no screen flash. I will stop immediately if I notice discomfort, pain or a change in vision.<small>This is a research prototype, not a medical device or diagnostic tool.</small></span></label>
+      <div className="button-row"><button className="btn primary" type="button" onClick={beginRecording} disabled={camera !== "ready" || recording || !safetyConfirmed || (reading?.confidence ?? 0) < .55}>{recording ? `Recording · ${(elapsed / 1000).toFixed(1)} s` : "Record 15 seconds"}</button><button className="btn" type="button" onClick={download} disabled={!samples.length || recording}>Export CSV</button></div>
       <SignalChart samples={samples} />
-      <div className="quality"><div><small>kullanılabilir örnek</small><strong>{summary.usable}</strong></div><div><small>izleme kapsamı</small><strong>{summary.coverage}%</strong></div><div><small>ışık kararlılığı</small><strong>{samples.length ? (summary.lightStable ? "uygun" : "değişken") : "—"}</strong></div></div>
-      <p className="fine-print"><span className="tag measured">ölçülen</span> Zaman, kamera pikselleri ve ortalama parlaklık. <span className="tag inferred">tahmin</span> Koyu bölgeden pupil çapı vekili ve ilk 3 saniyeye göre yüzdesel değişim. Görüntü kareleri bu sayfada işlenir; sunucuya yüklenmez. Kalibrasyon olmadan milimetre, PLR veya klinik yorum raporlanmaz.</p>
+      <div className="quality"><div><small>usable samples</small><strong>{summary.usable}</strong></div><div><small>tracking coverage</small><strong>{summary.coverage}%</strong></div><div><small>light stability</small><strong>{samples.length ? (summary.lightStable ? "stable" : "variable") : "—"}</strong></div></div>
+      <p className="fine-print"><span className="tag measured">measured</span> Time, camera pixels and mean brightness. <span className="tag inferred">inferred</span> Dark-region pupil-diameter proxy and percentage change relative to the first three seconds. Video frames are processed on this page and are not uploaded to the server. Millimetres, PLR and clinical interpretation are not reported without calibration and validated segmentation.</p>
     </section>
   </div>
 }
