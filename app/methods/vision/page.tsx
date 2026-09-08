@@ -37,9 +37,20 @@ const validation = [
 export default function VisionProtocolPage() {
   return <main className="page-shell"><SiteHeader />
     <section className="methods-hero">
-      <p className="eyebrow"><span className="status-dot" />IRIS COMPUTER VISION · PROTOCOL 0.1</p>
+      <p className="eyebrow"><span className="status-dot" />IRIS COMPUTER VISION · PROTOCOL 0.2</p>
       <h1>Measure the object before naming the pattern.</h1>
       <div className="methods-hero-foot"><p>A professional detector must know where a structure begins, whether its boundary closes, what it touches and how certain it is. Regional darkness alone cannot distinguish a crypt, lacuna, pigment mark or shadow.</p><Link className="btn primary" href="/analyze">Open iris measurement</Link></div>
+    </section>
+
+    <section className="method-document">
+      <header><p className="eyebrow">00 / CURRENT LIVE BASELINE</p><h2>Object candidates are now explicit.</h2></header>
+      <div className="pipeline-grid four-up">
+        <article><span>MASK</span><h3>Adaptive local contrast</h3><p>A pixel must differ from its own neighbourhood inside the calibrated, unmasked iris annulus.</p></article>
+        <article><span>INSTANCE</span><h3>Connected components</h3><p>Each surviving region becomes a separate object with its own centre, area and contour proxy.</p></article>
+        <article><span>SHAPE</span><h3>Geometry vector</h3><p>Elongation, circularity, radial alignment and collarette distance support a provisional shape family.</p></article>
+        <article><span>ABSTAIN</span><h3>Confidence ceiling</h3><p>Confidence is capped and weak evidence remains unresolved because pigment, shadow and tissue depth are not fully separated.</p></article>
+      </div>
+      <div className="method-boundary"><strong>LIVE MODEL 0.5</strong><p>This is an interpretable classical computer-vision baseline, not a trained clinical classifier. Its purpose is to create inspectable candidate masks and measurable features for the expert-labelled dataset that the later instance model will require.</p></div>
     </section>
 
     <section className="method-document">
