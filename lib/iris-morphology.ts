@@ -25,12 +25,23 @@ type PixelRegion = {
   irisDistance: number
   normalizedRadius: number
   sectorIndex: number
+  minuteIndex: number
   zoneIndex: number
+  atlasZoneIndex: number
   rx: number
   ry: number
 }
 
 const zoneLabels = ["inner / pupillary", "middle / stromal", "outer / peripheral"]
+const atlasZoneLabels = [
+  "inner pupillary margin",
+  "pupillary field",
+  "collarette field",
+  "inner ciliary field",
+  "outer ciliary field",
+  "peripheral rim",
+]
+const atlasBoundaries = [0, .16, .32, .48, .68, .86, 1]
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value))
 const rounded = (value: number) => Number(value.toFixed(3))
 
@@ -125,6 +136,9 @@ export function measureAnnulus(data: Buffer, width: number, height: number, segm
   const zones = Array.from({ length: 3 }, accumulator)
   const sectors = Array.from({ length: 12 }, accumulator)
   const cells = Array.from({ length: 36 }, accumulator)
+  const minuteSectors = Array.from({ length: 60 }, accumulator)
+  const atlasZones = Array.from({ length: 6 }, accumulator)
+  const atlasCells = Array.from({ length: 360 }, accumulator)
 
   function regionFor(x: number, y: number): PixelRegion | null {
     const irisDx = x - irisX
@@ -152,12 +166,16 @@ export function measureAnnulus(data: Buffer, width: number, height: number, segm
     // 0 is 12 o'clock; sector numbers then advance clockwise in the image.
     const clockTurn = Math.atan2(pupilDx, -pupilDy) / (2 * Math.PI)
     const sectorIndex = Math.floor(((clockTurn * 12 + 0.5) % 12 + 12) % 12)
+    const minuteIndex = Math.floor(((clockTurn * 60 + 0.5) % 60 + 60) % 60)
     const zoneIndex = Math.min(2, Math.floor(normalizedRadius * 3))
+    const atlasZoneIndex = Math.min(5, atlasBoundaries.findIndex((boundary, index) => index > 0 && normalizedRadius < boundary) - 1)
     return {
       irisDistance,
       normalizedRadius,
       sectorIndex,
+      minuteIndex,
       zoneIndex,
+      atlasZoneIndex: Math.max(0, atlasZoneIndex),
       rx: irisDx / Math.max(1, irisDistance),
       ry: irisDy / Math.max(1, irisDistance),
     }
@@ -166,7 +184,15 @@ export function measureAnnulus(data: Buffer, width: number, height: number, segm
   for (let y = 1; y < height - 1; y++) for (let x = 1; x < width - 1; x++) {
     const region = regionFor(x, y)
     if (!region) continue
-    const targets = [overall, zones[region.zoneIndex], sectors[region.sectorIndex], cells[region.zoneIndex * 12 + region.sectorIndex]]
+    const targets = [
+      overall,
+      zones[region.zoneIndex],
+      sectors[region.sectorIndex],
+      cells[region.zoneIndex * 12 + region.sectorIndex],
+      minuteSectors[region.minuteIndex],
+      atlasZones[region.atlasZoneIndex],
+      atlasCells[region.atlasZoneIndex * 60 + region.minuteIndex],
+    ]
     targets.forEach(addCandidate)
     const value = data[y * width + x]
     if (y < upperLimit || y > lowerLimit || value > 245) continue
@@ -194,7 +220,53 @@ export function measureAnnulus(data: Buffer, width: number, height: number, segm
     zones[region.zoneIndex].darkCount++
     sectors[region.sectorIndex].darkCount++
     cells[region.zoneIndex * 12 + region.sectorIndex].darkCount++
+    minuteSectors[region.minuteIndex].darkCount++
+    atlasZones[region.atlasZoneIndex].darkCount++
+    atlasCells[region.atlasZoneIndex * 60 + region.minuteIndex].darkCount++
   }
+
+  // The collarette is estimated independently for every six-degree ray by
+  // searching for a locally strong radial luminance transition. The search is
+  // deliberately constrained to the central iris and reported as an estimate,
+  // not an anatomical ground truth.
+  const rawCollarette = Array.from({ length: 60 }, (_, minute) => {
+    const angle = 2 * Math.PI * minute / 60
+    const ux = Math.sin(angle)
+    const uy = -Math.cos(angle)
+    const projection = centreOffsetX * ux + centreOffsetY * uy
+    const discriminant = projection ** 2 + irisRadius ** 2 - centreOffsetSquared
+    const outerDistance = projection + Math.sqrt(Math.max(0, discriminant))
+    const radialSpan = outerDistance - pupilRadius
+    let bestRadius = .42
+    let bestScore = 0
+    const sample = (radius: number) => {
+      const distance = pupilRadius + radius * radialSpan
+      const x = Math.round(pupilX + ux * distance)
+      const y = Math.round(pupilY + uy * distance)
+      if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1 || y < upperLimit || y > lowerLimit) return null
+      const value = data[y * width + x]
+      return value > 245 ? null : value
+    }
+    for (let radius = .2; radius <= .62; radius += .01) {
+      const before = sample(radius - .014)
+      const after = sample(radius + .014)
+      if (before === null || after === null) continue
+      const centralPrior = Math.exp(-((radius - .42) ** 2) / (.19 ** 2))
+      const score = Math.abs(after - before) * (.58 + .42 * centralPrior)
+      if (score > bestScore) {
+        bestScore = score
+        bestRadius = radius
+      }
+    }
+    return { minute, radial_fraction: bestRadius, confidence: clamp01(bestScore / 52) }
+  })
+  const collarette = rawCollarette.map((sample, minute) => {
+    const neighbours = [-2, -1, 0, 1, 2].map(offset => rawCollarette[(minute + offset + 60) % 60])
+    const weights = [1, 2, 3, 2, 1]
+    const radial = neighbours.reduce((sum, neighbour, index) => sum + neighbour.radial_fraction * weights[index], 0) / 9
+    const confidence = neighbours.reduce((sum, neighbour, index) => sum + neighbour.confidence * weights[index], 0) / 9
+    return { minute: sample.minute, radial_fraction: rounded(radial), confidence_0_1: rounded(confidence) }
+  })
 
   const overallMetrics = finalize(overall)
   const zoneMetrics = zones.map((zone, index) => ({
@@ -213,6 +285,22 @@ export function measureAnnulus(data: Buffer, width: number, height: number, segm
     clock: index % 12 === 0 ? 12 : index % 12,
     ...finalize(cell),
   }))
+  const minuteMetrics = minuteSectors.map((sector, minute) => ({
+    minute,
+    degree_from_12_clockwise: minute * 6,
+    ...finalize(sector),
+  }))
+  const atlasZoneMetrics = atlasZones.map((zone, index) => ({
+    id: `atlas-${index + 1}`,
+    label: atlasZoneLabels[index],
+    radial_range: `${Math.round(atlasBoundaries[index] * 100)}–${Math.round(atlasBoundaries[index + 1] * 100)}%`,
+    ...finalize(zone),
+  }))
+  const atlasCellMetrics = atlasCells.map((cell, index) => ({
+    atlas_zone: Math.floor(index / 60) + 1,
+    minute: index % 60,
+    ...finalize(cell),
+  }))
   const complexities = sectorMetrics.filter(sector => sector.usable_px > 0).map(sector => sector.texture_complexity_0_1)
   const dominantSectors = [...sectorMetrics]
     .filter(sector => sector.usable_fraction >= 0.2)
@@ -223,7 +311,7 @@ export function measureAnnulus(data: Buffer, width: number, height: number, segm
   const strongestConcentricZone = [...zoneMetrics].sort((a, b) => b.concentric_structure_0_1 - a.concentric_structure_0_1)[0]
 
   return {
-    method: "polar-regional-orientation-0.3",
+    method: "polar-regional-orientation-0.4",
     analysis_width_px: width,
     analysis_height_px: height,
     usable_annulus_fraction: overallMetrics.usable_fraction,
@@ -239,6 +327,16 @@ export function measureAnnulus(data: Buffer, width: number, height: number, segm
       zones: zoneMetrics,
       sectors: sectorMetrics,
       cells: cellMetrics,
+      minute_sectors: minuteMetrics,
+      atlas_zones: atlasZoneMetrics,
+      atlas_cells: atlasCellMetrics,
+      collarette: {
+        status: "image-derived estimate",
+        samples: collarette,
+        mean_radial_fraction: rounded(collarette.reduce((sum, sample) => sum + sample.radial_fraction, 0) / collarette.length),
+        irregularity_0_1: rounded(clamp01(standardDeviation(collarette.map(sample => sample.radial_fraction)) * 4)),
+        confidence_0_1: rounded(collarette.reduce((sum, sample) => sum + sample.confidence_0_1, 0) / collarette.length),
+      },
       summary: {
         angular_heterogeneity_0_1: rounded(clamp01(standardDeviation(complexities) * 3.2)),
         dominant_texture_sectors: dominantSectors,
