@@ -43,8 +43,8 @@ export default function Home() {
           </article>
           <article className="method-card">
             <span className="index">02 / DYNAMICS</span>
-            <div><h3>Pupil Tracking Prototype</h3><p>Tracks a pupil-width proxy through baseline, light exposure and recovery. Timing, tracking confidence and the full trace remain visible.</p></div>
-            <Link href="/pupillometry">open prototype →</Link>
+            <div><h3>Pupil light response</h3><p>Measures a 30-second response curve: baseline, constriction amplitude, latency, velocity, recovery, repeatability and signal quality.</p></div>
+            <Link href="/pupillometry">measure a response →</Link>
           </article>
           <article className="method-card">
             <span className="index">03 / DEVELOPMENT</span>
