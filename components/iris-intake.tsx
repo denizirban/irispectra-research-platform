@@ -27,6 +27,16 @@ type RegionalProfile = {
   zones: RegionMetric[]
   sectors: RegionMetric[]
   cells: RegionMetric[]
+  minute_sectors?: Array<RegionMetric & { minute: number; degree_from_12_clockwise: number }>
+  atlas_zones?: Array<RegionMetric & { id: string; label: string; radial_range: string }>
+  atlas_cells?: Array<RegionMetric & { atlas_zone: number; minute: number }>
+  collarette?: {
+    status: string
+    samples: Array<{ minute: number; radial_fraction: number; confidence_0_1: number }>
+    mean_radial_fraction: number
+    irregularity_0_1: number
+    confidence_0_1: number
+  }
   summary: {
     angular_heterogeneity_0_1: number
     dominant_texture_sectors: number[]
@@ -121,6 +131,61 @@ const numberValue = (value: unknown) => Number.isFinite(Number(value)) ? Number(
 const percent = (value: unknown, digits = 0) => `${(numberValue(value) * 100).toFixed(digits)}%`
 const zoneName = (value: string) => value === "inner" ? "inner / pupillary" : value === "middle" ? "middle / stromal" : "outer / peripheral"
 const clockName = (value: number) => `${value} o’clock`
+const minuteName = (value: number) => `${String(value).padStart(2, "0")} min · ${value * 6}° clockwise from 12`
+
+const atlasBandNames = [
+  "inner pupillary margin",
+  "pupillary field",
+  "collarette field",
+  "inner ciliary field",
+  "outer ciliary field",
+  "peripheral rim",
+]
+
+function angularAtlasFamily(side: Side, minute: number) {
+  if (minute >= 55 || minute < 5) return "cerebral / neuroendocrine reference family"
+  if (minute < 10) return "upper-airway / cervical reference family"
+  if (minute < 20) return "thoracic / pulmonary reference family"
+  if (minute < 30) return side === "left" ? "splenic / abdominal-pelvic reference family" : "hepatic / abdominal-pelvic reference family"
+  if (minute < 40) return "urogenital / pelvic reference family"
+  if (minute < 50) return side === "left" ? "cardiopulmonary / digestive reference family" : "hepatobiliary / pulmonary reference family"
+  return "cranial / ear / medullary reference family"
+}
+
+function atlasReference(side: Side, atlasZone: number, minute: number) {
+  if (atlasZone === 1) return "inner pupillary border reference"
+  if (atlasZone === 2) return "pupillary / gastrointestinal topography"
+  if (atlasZone === 3) return "collarette / autonomic-boundary reference"
+  if (atlasZone === 5) return `outer ciliary · ${angularAtlasFamily(side, minute)}`
+  if (atlasZone === 6) return "peripheral lymphatic / skin reference"
+  return angularAtlasFamily(side, minute)
+}
+
+function polarPoint(radius: number, minute: number) {
+  const angle = minute / 60 * Math.PI * 2 - Math.PI / 2
+  return { x: 50 + radius * Math.cos(angle), y: 50 + radius * Math.sin(angle) }
+}
+
+function atlasCellPath(zone: number, minute: number) {
+  const boundaries = [14, 19.4, 24.9, 30.3, 37.1, 43.2, 48]
+  const inner = boundaries[zone - 1]
+  const outer = boundaries[zone]
+  const start = minute - .5
+  const end = minute + .5
+  const a = polarPoint(inner, start)
+  const b = polarPoint(outer, start)
+  const c = polarPoint(outer, end)
+  const d = polarPoint(inner, end)
+  return `M ${a.x} ${a.y} L ${b.x} ${b.y} A ${outer} ${outer} 0 0 1 ${c.x} ${c.y} L ${d.x} ${d.y} A ${inner} ${inner} 0 0 0 ${a.x} ${a.y} Z`
+}
+
+function collarettePath(samples: Array<{ minute: number; radial_fraction: number }>) {
+  if (!samples.length) return ""
+  return samples.map((sample, index) => {
+    const point = polarPoint(14 + sample.radial_fraction * 34, sample.minute)
+    return `${index ? "L" : "M"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
+  }).join(" ") + " Z"
+}
 
 function evidenceConfidence(metric: IrisMetric) {
   const usable = numberValue(metric.usable_annulus_fraction)
@@ -158,6 +223,82 @@ function RegionalMap({ metric }: { metric: IrisMetric }) {
     </div>
     <p className="map-caption">Each cell is a pupil-centred radial band × clock sector. Dark hatching means the region has limited unmasked pixels.</p>
   </div>
+}
+
+function AndrewsAtlas({ metric, preview, calibration, quality }: { metric: IrisMetric; preview: string | null; calibration: Calibration; quality: Quality | null }) {
+  const profile = metric.regional_profile
+  const cells = profile?.atlas_cells || []
+  const collarette = profile?.collarette
+  const strongest = useMemo(() => [...cells]
+    .filter(cell => cell.usable_fraction >= .3)
+    .sort((a, b) => b.texture_complexity_0_1 - a.texture_complexity_0_1), [cells])
+  const [selectedKey, setSelectedKey] = useState("")
+  const [mode, setMode] = useState<"morphology" | "atlas" | "combined">("combined")
+  if (!cells.length || !collarette?.samples?.length) return null
+  const selected = cells.find(cell => `${cell.atlas_zone}-${cell.minute}` === selectedKey) || strongest[0] || cells[0]
+  const imageScaleX = 47 / Math.max(1, calibration.irisRadius)
+  const irisRadiusY = calibration.irisRadius * ((quality?.width || 1) / (quality?.height || 1))
+  const imageScaleY = 47 / Math.max(1, irisRadiusY)
+  const imageX = 50 - calibration.irisCenterX * imageScaleX
+  const imageY = 50 - calibration.irisCenterY * imageScaleY
+  const bandColours = ["#d9f7ff", "#f2d966", "#60d4c1", "#ee8f5d", "#93d36d", "#c8c4ba"]
+  const point = polarPoint(14 + ((selected.atlas_zone - .5) / 6) * 34, selected.minute)
+  const topFindings = strongest.slice(0, 8)
+
+  return <section className="andrews-atlas" aria-label={`${metric.laterality} iris Andrews reference atlas`}>
+    <header className="atlas-head">
+      <div><span>ANDREWS REFERENCE LAYER · {metric.laterality === "left" ? "OS" : "OD"}</span><h4>Measured morphology over a 60-minute polar atlas</h4></div>
+      <div className="atlas-modes" role="group" aria-label="Atlas display layer">
+        {(["morphology", "atlas", "combined"] as const).map(value => <button key={value} type="button" className={mode === value ? "is-active" : ""} onClick={() => setMode(value)}>{value}</button>)}
+      </div>
+    </header>
+    <div className="atlas-workspace">
+      <div className="atlas-disc-wrap">
+        <svg className="atlas-disc" viewBox="0 0 100 100" role="img" aria-label="Normalised iris atlas with measured regional texture">
+          <defs><clipPath id={`iris-clip-${metric.laterality}`}><circle cx="50" cy="50" r="48" /></clipPath></defs>
+          <circle cx="50" cy="50" r="48" fill="#171815" />
+          {preview && <image href={preview} x={imageX} y={imageY} width={100 * imageScaleX} height={100 * imageScaleY} preserveAspectRatio="none" opacity={mode === "atlas" ? .14 : .72} clipPath={`url(#iris-clip-${metric.laterality})`} />}
+          {cells.map(cell => {
+            const key = `${cell.atlas_zone}-${cell.minute}`
+            const active = key === `${selected.atlas_zone}-${selected.minute}`
+            const measuredOpacity = mode === "atlas" ? .04 : Math.max(.03, Math.min(.68, cell.texture_complexity_0_1 * .78))
+            const fill = mode === "morphology" ? `rgba(191,255,39,${measuredOpacity})` : mode === "atlas" ? bandColours[cell.atlas_zone - 1] : active ? "#bfff27" : `rgba(191,255,39,${measuredOpacity})`
+            return <path key={key} d={atlasCellPath(cell.atlas_zone, cell.minute)} fill={fill} fillOpacity={mode === "atlas" ? .2 : 1} stroke={active ? "#bfff27" : "rgba(255,255,255,.12)"} strokeWidth={active ? .38 : .08} onClick={() => setSelectedKey(key)} className="atlas-cell-path"><title>{atlasBandNames[cell.atlas_zone - 1]}, {minuteName(cell.minute)}; texture {percent(cell.texture_complexity_0_1)}</title></path>
+          })}
+          {(mode === "atlas" || mode === "combined") && [19.4, 24.9, 30.3, 37.1, 43.2, 48].map(radius => <circle key={radius} cx="50" cy="50" r={radius} fill="none" stroke="rgba(255,255,255,.42)" strokeWidth=".18" />)}
+          {(mode === "atlas" || mode === "combined") && Array.from({ length: 60 }, (_, minute) => {
+            const a = polarPoint(minute % 5 === 0 ? 47 : 48, minute)
+            const b = polarPoint(49.2, minute)
+            return <line key={minute} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={minute % 5 === 0 ? "#f4f2ea" : "rgba(244,242,234,.55)"} strokeWidth={minute % 5 === 0 ? .35 : .14} />
+          })}
+          <path d={collarettePath(collarette.samples)} fill="none" stroke="#f3d56a" strokeWidth=".55" strokeDasharray="1.2 .7" />
+          <circle cx="50" cy="50" r="14" fill="#070807" stroke="#f4f2ea" strokeWidth=".42" />
+          <circle cx={point.x} cy={point.y} r=".85" fill="#bfff27" stroke="#111" strokeWidth=".28" />
+          {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map(minute => {
+            const labelPoint = polarPoint(52, minute)
+            return <text key={minute} x={labelPoint.x} y={labelPoint.y} textAnchor="middle" dominantBaseline="middle">{minute}</text>
+          })}
+        </svg>
+        <div className="atlas-legend"><span><i className="collarette-key" />image-derived collarette estimate</span><span><i className="selection-key" />selected measured region</span></div>
+      </div>
+      <aside className="atlas-inspector">
+        <span className="atlas-coordinate">{minuteName(selected.minute)} · BAND {selected.atlas_zone}</span>
+        <h5>{atlasBandNames[selected.atlas_zone - 1]}</h5>
+        <dl>
+          <div><dt>texture complexity</dt><dd>{percent(selected.texture_complexity_0_1)}</dd></div>
+          <div><dt>contrast</dt><dd>{selected.contrast_0_1.toFixed(3)}</dd></div>
+          <div><dt>dark discontinuity</dt><dd>{percent(selected.dark_discontinuity_fraction_0_1, 1)}</dd></div>
+          <div><dt>usable evidence</dt><dd>{percent(selected.usable_fraction)}</dd></div>
+        </dl>
+        <div className="atlas-reference-note"><small>HISTORICAL ATLAS OVERLAP</small><strong>{atlasReference(metric.laterality, selected.atlas_zone, selected.minute)}</strong><p>This is a coordinate lookup in the Andrews reference chart, not evidence that the named organ or system is abnormal.</p></div>
+      </aside>
+    </div>
+    <div className="atlas-findings"><strong>Highest relative texture regions</strong><div>{topFindings.map(cell => {
+      const key = `${cell.atlas_zone}-${cell.minute}`
+      return <button key={key} type="button" className={key === `${selected.atlas_zone}-${selected.minute}` ? "is-active" : ""} onClick={() => setSelectedKey(key)}><span>{String(cell.minute).padStart(2, "0")}′</span>{atlasBandNames[cell.atlas_zone - 1]}<b>{Math.round(cell.texture_complexity_0_1 * 100)}</b></button>
+    })}</div></div>
+    <footer><span>COLLARETTE CONFIDENCE {percent(collarette.confidence_0_1)}</span><span>ANGULAR IRREGULARITY {percent(collarette.irregularity_0_1)}</span><p>The yellow contour is an image-derived hypothesis and remains editable/confirmable in future acquisition versions.</p></footer>
+  </section>
 }
 
 function ZoneProfile({ metric }: { metric: IrisMetric }) {
@@ -224,7 +365,7 @@ function BilateralComparison({ metrics }: { metrics: IrisMetric[] }) {
   const qualityGap = Math.abs(evidenceConfidence(left).score - evidenceConfidence(right).score)
 
   return <div className="result-section bilateral-result">
-    <div className="result-section-head"><div><span>04</span><h3>Bilateral descriptor comparison</h3></div><p>Right-eye sectors are mirrored before regional correspondence is calculated.</p></div>
+    <div className="result-section-head"><div><span>05</span><h3>Bilateral descriptor comparison</h3></div><p>Right-eye sectors are mirrored before regional correspondence is calculated.</p></div>
     <div className="bilateral-summary">
       <div><small>mirrored regional agreement</small><strong>{percent(mirroredSimilarity)}</strong><p>Internal descriptor agreement only—not an identity or health score.</p></div>
       <div><small>acquisition evidence gap</small><strong>{percent(qualityGap)}</strong><p>{qualityGap > .18 ? "Image quality differs enough to weaken direct comparison." : "Image evidence is sufficiently balanced for an exploratory comparison."}</p></div>
@@ -416,14 +557,23 @@ export function IrisIntake() {
       </div>
     </div>}
 
+    {result.metrics.some(metric => metric.regional_profile?.atlas_cells?.length) && <div className="result-section atlas-result">
+      <div className="result-section-head"><div><span>04</span><h3>Morphology atlas · Andrews reference layer</h3></div><p>Six normalised radial bands × sixty angular minutes, with an image-derived collarette estimate.</p></div>
+      <div className="atlas-eyes">{result.metrics.map(metric => <AndrewsAtlas key={metric.laterality} metric={metric} preview={previews[metric.laterality]} calibration={calibration[metric.laterality]} quality={quality[metric.laterality]} />)}</div>
+      <div className="method-boundary atlas-boundary">
+        <strong>TWO LAYERS, TWO CLAIM TYPES</strong>
+        <p><b>Measured morphology</b> is computed from pixels inside the calibrated iris. <b>Historical atlas overlap</b> is only a coordinate correspondence with the supplied Andrews chart. An overlap does not validate organ mapping, identify disease or establish biological causation.</p>
+      </div>
+    </div>}
+
     <BilateralComparison metrics={result.metrics} />
 
     {result.metrics.some(metric => metric.regional_profile) && <div className="result-section narrative-result">
-      <div className="result-section-head"><div><span>05</span><h3>Extended morphology reading</h3></div><p>A deterministic account of measured spatial structure and its uncertainty—not a diagnosis.</p></div>
+      <div className="result-section-head"><div><span>06</span><h3>Extended morphology reading</h3></div><p>A deterministic account of measured spatial structure and its uncertainty—not a diagnosis.</p></div>
       <div className="narrative-grid">{result.metrics.map(metric => <EyeNarrative key={metric.laterality} metric={metric} />)}</div>
       <div className="method-boundary">
         <strong>WHAT THIS PIPELINE CAN AND CANNOT SAY</strong>
-        <p>It can locate where texture, contrast and directional organisation concentrate in this photograph. It cannot yet distinguish stromal crypts from pigment/shadow, confirm contraction furrows, reconstruct transient fetal vessels, or infer organs, disease, personality or developmental cause. Those claims require labelled datasets, repeat-image reliability and external validation.</p>
+        <p>It can locate where texture, contrast and directional organisation concentrate in this photograph and map those coordinates onto a historical reference layer. It cannot yet distinguish stromal crypts from pigment/shadow, confirm contraction furrows, reconstruct transient fetal vessels, or infer organs, disease, personality or developmental cause. Those claims require labelled datasets, repeat-image reliability and external validation.</p>
       </div>
     </div>}
 
