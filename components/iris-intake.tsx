@@ -142,23 +142,58 @@ const atlasBandNames = [
   "peripheral rim",
 ]
 
-function angularAtlasFamily(side: Side, minute: number) {
-  if (minute >= 55 || minute < 5) return "cerebral / neuroendocrine reference family"
-  if (minute < 10) return "upper-airway / cervical reference family"
-  if (minute < 20) return "thoracic / pulmonary reference family"
-  if (minute < 30) return side === "left" ? "splenic / abdominal-pelvic reference family" : "hepatic / abdominal-pelvic reference family"
-  if (minute < 40) return "urogenital / pelvic reference family"
-  if (minute < 50) return side === "left" ? "cardiopulmonary / digestive reference family" : "hepatobiliary / pulmonary reference family"
-  return "cranial / ear / medullary reference family"
+const rightAtlasOrgans = [
+  ["pituitary gland", "hypothalamus / cerebrum"],
+  ["pineal gland", "frontal sinus / frontal lobe"],
+  ["nose / tonsils", "pharynx / cervical lymph nodes"],
+  ["oesophagus", "bronchial tree / lung"],
+  ["pancreas", "liver / gall bladder"],
+  ["bladder", "kidney / pelvic field"],
+  ["adrenal gland", "kidney / skin"],
+  ["reproductive organs", "pelvis / peritoneum"],
+  ["liver / biliary field", "pleura / diaphragm"],
+  ["heart", "middle and lower lung"],
+  ["middle ear", "medulla / cerebellum"],
+  ["pituitary / limbic field", "occipital / parietal lobe"],
+]
+const leftAtlasOrgans = [
+  ["pituitary gland", "hypothalamus / cerebrum"],
+  ["pineal gland", "parietal / occipital lobe"],
+  ["nose / tonsils", "pharynx / cervical lymph nodes"],
+  ["heart / oesophagus", "bronchial tree / lung"],
+  ["pancreas", "spleen / diaphragm"],
+  ["bladder", "kidney / pelvic field"],
+  ["adrenal gland", "kidney / skin"],
+  ["reproductive organs", "pelvis / peritoneum"],
+  ["posterior liver field", "pleura / abdominal field"],
+  ["heart / oesophagus", "middle and lower lung"],
+  ["larynx / thyroid", "cervical lymph nodes"],
+  ["pituitary / limbic field", "frontal lobe / corpus callosum"],
+]
+
+function atlasOrgan(side: Side, atlasZone: number, minute: number) {
+  if (atlasZone === 1) return "inner pupillary border"
+  if (atlasZone === 2) return "stomach / intestinal field"
+  if (atlasZone === 3) return "collarette / autonomic nerve wreath"
+  if (atlasZone === 6) return "skin / peripheral lymphatic system"
+  const index = Math.floor(((minute + 2.5) % 60) / 5)
+  const pair = (side === "left" ? leftAtlasOrgans : rightAtlasOrgans)[index]
+  return pair[atlasZone === 4 ? 0 : 1]
 }
 
-function atlasReference(side: Side, atlasZone: number, minute: number) {
-  if (atlasZone === 1) return "inner pupillary border reference"
-  if (atlasZone === 2) return "pupillary / gastrointestinal topography"
-  if (atlasZone === 3) return "collarette / autonomic-boundary reference"
-  if (atlasZone === 5) return `outer ciliary · ${angularAtlasFamily(side, minute)}`
-  if (atlasZone === 6) return "peripheral lymphatic / skin reference"
-  return angularAtlasFamily(side, minute)
+function patternCandidate(cell: RegionMetric) {
+  const usable = cell.usable_fraction
+  const dark = cell.dark_discontinuity_fraction_0_1
+  const contrast = cell.contrast_0_1
+  const radial = cell.radial_structure_0_1
+  const concentric = cell.concentric_structure_0_1
+  const detail = cell.fine_detail_energy_0_1
+  if (usable < .25) return { name: "unresolved / masked region", detail: "Too little unmasked iris is visible for a morphology candidate.", confidence: 0 }
+  if (dark > .16 && contrast > .11) return { name: "crypt / lacuna-like opening candidate", detail: "A locally dark, contrast-defined interruption. Shape topology is not yet sufficient to separate a crypt from a lacuna.", confidence: Math.min(.78, .35 + dark + contrast) }
+  if (radial > .14 && radial > concentric * 1.25) return { name: "radial furrow / fibre-separation candidate", detail: "Directional energy is stronger along a centre-to-edge axis, consistent with a radial fibre opening or furrow-like structure.", confidence: Math.min(.76, .38 + radial + detail * .4) }
+  if (concentric > .14 && concentric > radial * 1.18) return { name: "contraction-furrow-like ring candidate", detail: "Tangential organisation exceeds radial organisation in this region.", confidence: Math.min(.74, .38 + concentric + detail * .35) }
+  if (dark > .09) return { name: "pigment-or-opening discontinuity candidate", detail: "A dark interruption is present, but colour, shadow and stromal opening are not yet separated.", confidence: Math.min(.68, .35 + dark + contrast * .5) }
+  return { name: "diffuse stromal texture", detail: "No single crypt, lacuna or furrow class dominates the current regional descriptors.", confidence: Math.min(.64, .34 + cell.texture_complexity_0_1 * .35) }
 }
 
 function polarPoint(radius: number, minute: number) {
@@ -225,7 +260,7 @@ function RegionalMap({ metric }: { metric: IrisMetric }) {
   </div>
 }
 
-function AndrewsAtlas({ metric, preview, calibration, quality }: { metric: IrisMetric; preview: string | null; calibration: Calibration; quality: Quality | null }) {
+function TopographicAtlas({ metric, preview, calibration, quality }: { metric: IrisMetric; preview: string | null; calibration: Calibration; quality: Quality | null }) {
   const profile = metric.regional_profile
   const cells = profile?.atlas_cells || []
   const collarette = profile?.collarette
@@ -245,9 +280,11 @@ function AndrewsAtlas({ metric, preview, calibration, quality }: { metric: IrisM
   const point = polarPoint(14 + ((selected.atlas_zone - .5) / 6) * 34, selected.minute)
   const topFindings = strongest.slice(0, 8)
 
-  return <section className="andrews-atlas" aria-label={`${metric.laterality} iris Andrews reference atlas`}>
+  const candidate = patternCandidate(selected)
+
+  return <section className="topographic-atlas" aria-label={`${metric.laterality} iris morphology atlas`}>
     <header className="atlas-head">
-      <div><span>ANDREWS REFERENCE LAYER · {metric.laterality === "left" ? "OS" : "OD"}</span><h4>Measured morphology over a 60-minute polar atlas</h4></div>
+      <div><span>IRIS TOPOGRAPHY · {metric.laterality === "left" ? "OS" : "OD"}</span><h4>Measured morphology over a 60-minute polar atlas</h4></div>
       <div className="atlas-modes" role="group" aria-label="Atlas display layer">
         {(["morphology", "atlas", "combined"] as const).map(value => <button key={value} type="button" className={mode === value ? "is-active" : ""} onClick={() => setMode(value)}>{value}</button>)}
       </div>
@@ -290,12 +327,13 @@ function AndrewsAtlas({ metric, preview, calibration, quality }: { metric: IrisM
           <div><dt>dark discontinuity</dt><dd>{percent(selected.dark_discontinuity_fraction_0_1, 1)}</dd></div>
           <div><dt>usable evidence</dt><dd>{percent(selected.usable_fraction)}</dd></div>
         </dl>
-        <div className="atlas-reference-note"><small>HISTORICAL ATLAS OVERLAP</small><strong>{atlasReference(metric.laterality, selected.atlas_zone, selected.minute)}</strong><p>This is a coordinate lookup in the Andrews reference chart, not evidence that the named organ or system is abnormal.</p></div>
+        <div className="atlas-pattern-note"><small>MORPHOLOGY CANDIDATE</small><strong>{candidate.name}</strong><p>{candidate.detail}</p><span>experimental confidence {percent(candidate.confidence)}</span></div>
+        <div className="atlas-reference-note"><small>ATLAS LOCATION</small><strong>{atlasOrgan(metric.laterality, selected.atlas_zone, selected.minute)}</strong><p>This is a location name from the reference atlas. It does not show that the named organ is abnormal or that the visible pattern originated there.</p></div>
       </aside>
     </div>
     <div className="atlas-findings"><strong>Highest relative texture regions</strong><div>{topFindings.map(cell => {
       const key = `${cell.atlas_zone}-${cell.minute}`
-      return <button key={key} type="button" className={key === `${selected.atlas_zone}-${selected.minute}` ? "is-active" : ""} onClick={() => setSelectedKey(key)}><span>{String(cell.minute).padStart(2, "0")}′</span>{atlasBandNames[cell.atlas_zone - 1]}<b>{Math.round(cell.texture_complexity_0_1 * 100)}</b></button>
+      return <button key={key} type="button" className={key === `${selected.atlas_zone}-${selected.minute}` ? "is-active" : ""} onClick={() => setSelectedKey(key)}><span>{String(cell.minute).padStart(2, "0")}′</span>{patternCandidate(cell).name}<b>{Math.round(cell.texture_complexity_0_1 * 100)}</b></button>
     })}</div></div>
     <footer><span>COLLARETTE CONFIDENCE {percent(collarette.confidence_0_1)}</span><span>ANGULAR IRREGULARITY {percent(collarette.irregularity_0_1)}</span><p>The yellow contour is an image-derived hypothesis and remains editable/confirmable in future acquisition versions.</p></footer>
   </section>
@@ -558,11 +596,11 @@ export function IrisIntake() {
     </div>}
 
     {result.metrics.some(metric => metric.regional_profile?.atlas_cells?.length) && <div className="result-section atlas-result">
-      <div className="result-section-head"><div><span>04</span><h3>Morphology atlas · Andrews reference layer</h3></div><p>Six normalised radial bands × sixty angular minutes, with an image-derived collarette estimate.</p></div>
-      <div className="atlas-eyes">{result.metrics.map(metric => <AndrewsAtlas key={metric.laterality} metric={metric} preview={previews[metric.laterality]} calibration={calibration[metric.laterality]} quality={quality[metric.laterality]} />)}</div>
+      <div className="result-section-head"><div><span>04</span><h3>Iris morphology atlas</h3></div><p>Six normalised radial bands × sixty angular minutes, with an image-derived collarette estimate.</p></div>
+      <div className="atlas-eyes">{result.metrics.map(metric => <TopographicAtlas key={metric.laterality} metric={metric} preview={previews[metric.laterality]} calibration={calibration[metric.laterality]} quality={quality[metric.laterality]} />)}</div>
       <div className="method-boundary atlas-boundary">
         <strong>TWO LAYERS, TWO CLAIM TYPES</strong>
-        <p><b>Measured morphology</b> is computed from pixels inside the calibrated iris. <b>Historical atlas overlap</b> is only a coordinate correspondence with the supplied Andrews chart. An overlap does not validate organ mapping, identify disease or establish biological causation.</p>
+        <p><b>Measured morphology</b> is computed from pixels inside the calibrated iris. <b>Atlas location</b> is only a coordinate correspondence with a historical iris map. A location match does not validate organ mapping, identify disease or establish biological causation.</p>
       </div>
     </div>}
 
