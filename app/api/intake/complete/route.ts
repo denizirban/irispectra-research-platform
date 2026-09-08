@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     )
     const createdRun = !runs[0]
     if (createdRun) {
-      await insert("analysis_runs", { submission_id: submissionId, status: "completed", completed_at: new Date().toISOString(), model_family: "polar-regional-image-descriptors", model_version: "0.4", pipeline_version: "2026-09-08-andrews-reference", diagnostics: { scope: "non-diagnostic polar regional structural measurements with a separated historical atlas lookup", grid: "3 measurement zones x 12 clock sectors plus 6 atlas bands x 60 angular minutes", collarette: "image-derived estimate" } })
+      await insert("analysis_runs", { submission_id: submissionId, status: "completed", completed_at: new Date().toISOString(), model_family: "polar-regional-image-descriptors", model_version: "0.4", pipeline_version: "2026-09-08-topographic-reference", diagnostics: { scope: "non-diagnostic polar regional structural measurements with a separated historical atlas lookup", grid: "3 measurement zones x 12 clock sectors plus 6 atlas bands x 60 angular minutes", collarette: "image-derived estimate" } })
     }
     if (submission.status !== "queued") {
       await update(`submissions?id=eq.${submissionId}`, { status: "queued" })
