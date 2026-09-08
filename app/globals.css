@@ -307,6 +307,25 @@ h3 { font-size: 20px; margin: 0 0 10px; }
 .stimulus { width: 180px; height: 180px; border-radius: 50%; background: var(--white); box-shadow: 0 0 80px 25px rgba(255,255,255,.2); }
 .protocol-stage.dark .stimulus { width: 42px; height: 42px; background: #222; box-shadow: none; }
 .timer { position: absolute; left: 20px; bottom: 18px; color: var(--acid); font: 13px ui-monospace, monospace; }
+.prototype-banner { display: grid; grid-template-columns: 260px 1fr; gap: 24px; align-items: center; margin-bottom: 18px; padding: 18px 22px; border: 1px solid #4d6e24; background: #e8f6c6; }
+.prototype-banner span { font: 700 11px/1.4 "Irispectra Mono", ui-monospace, monospace; letter-spacing: .07em; }
+.prototype-banner p { margin: 0; color: #34421f; font-size: 14px; line-height: 1.5; }
+.camera-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-top: 22px; }
+.camera-select { min-width: min(100%, 330px); display: grid; gap: 6px; }
+.camera-select span, .threshold-control span { font: 10px "Irispectra Mono", ui-monospace, monospace; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+.camera-select select { min-height: 50px; padding: 0 12px; border: 1px solid var(--ink); background: var(--white); }
+.analysis-stage { position: relative; min-height: 410px; display: grid; place-items: center; overflow: hidden; background: #050505; }
+.analysis-stage canvas { display: block; width: 100%; height: 100%; min-height: 410px; object-fit: cover; image-rendering: auto; }
+.threshold-control { display: grid; gap: 12px; max-width: 620px; margin-top: 22px; }
+.threshold-control span { display: flex; justify-content: space-between; }
+.threshold-control output { color: var(--ink); font-weight: 700; }
+.threshold-control input { width: 100%; accent-color: var(--ink); }
+.live-quality strong { font-size: 15px; text-transform: uppercase; }
+.signal-empty { min-height: 164px; display: grid; place-items: center; margin-top: 22px; border: 1px solid var(--line); color: var(--muted); font: 11px/1.5 "Irispectra Mono", ui-monospace, monospace; text-align: center; padding: 20px; }
+.signal-chart { display: block; width: 100%; height: 164px; margin-top: 22px; border: 1px solid var(--line); background: #11120f; }
+.signal-chart line { stroke: #4a4b44; stroke-width: 1; stroke-dasharray: 4 4; }
+.signal-chart polyline { fill: none; stroke: var(--acid); stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.signal-chart text { fill: #8d8e86; font: 10px "Irispectra Mono", ui-monospace, monospace; }
 .site-footer { min-height: 180px; padding: 42px 5vw; display: flex; justify-content: space-between; gap: 30px; background: var(--ink); color: var(--white); }
 .site-footer p { color: #8d8e86; }
 
@@ -322,6 +341,7 @@ h3 { font-size: 20px; margin: 0 0 10px; }
   .calibration-card { border-right: 0; border-bottom: 1px solid var(--line); }
   .calibration-card:last-child { border-bottom: 0; }
   .pupil-grid { grid-template-columns: 1fr; }
+  .prototype-banner { grid-template-columns: 1fr; gap: 7px; }
   .simulator { grid-template-columns: 1fr; }
   .sim-output { padding: 18px 12px 36px; gap: 10px; }
   .model-note { grid-template-columns: 1fr; }
