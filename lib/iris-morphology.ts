@@ -45,6 +45,25 @@ const atlasBoundaries = [0, .16, .32, .48, .68, .86, 1]
 const clamp01 = (value: number) => Math.max(0, Math.min(1, value))
 const rounded = (value: number) => Number(value.toFixed(3))
 
+export type PatternCandidate = {
+  id: string
+  class_name: string
+  confidence_0_1: number
+  centre_x_0_1: number
+  centre_y_0_1: number
+  width_0_1: number
+  height_0_1: number
+  radial_fraction: number
+  minute: number
+  area_fraction_of_iris: number
+  darkness_0_1: number
+  elongation: number
+  circularity_0_1: number
+  radial_alignment_0_1: number
+  collarette_distance_0_1: number
+  configuration_size: number
+}
+
 function accumulator(): Accumulator {
   return {
     candidate: 0,
@@ -268,6 +287,115 @@ export function measureAnnulus(data: Buffer, width: number, height: number, segm
     return { minute: sample.minute, radial_fraction: rounded(radial), confidence_0_1: rounded(confidence) }
   })
 
+  // Experimental object-level baseline. A local-contrast mask is built only
+  // inside the manually calibrated, unoccluded annulus; connected components
+  // then provide explicit candidate instances rather than assigning a label to
+  // a whole clock region. These remain photometric candidates, not anatomy.
+  const integralWidth = width + 1
+  const integral = new Float64Array((width + 1) * (height + 1))
+  for (let y = 0; y < height; y++) {
+    let row = 0
+    for (let x = 0; x < width; x++) {
+      row += data[y * width + x]
+      integral[(y + 1) * integralWidth + x + 1] = integral[y * integralWidth + x + 1] + row
+    }
+  }
+  const localMean = (x: number, y: number, radius = 6) => {
+    const x0 = Math.max(0, x - radius), x1 = Math.min(width - 1, x + radius)
+    const y0 = Math.max(0, y - radius), y1 = Math.min(height - 1, y + radius)
+    const sum = integral[(y1 + 1) * integralWidth + x1 + 1] - integral[y0 * integralWidth + x1 + 1] - integral[(y1 + 1) * integralWidth + x0] + integral[y0 * integralWidth + x0]
+    return sum / ((x1 - x0 + 1) * (y1 - y0 + 1))
+  }
+  const objectMask = new Uint8Array(width * height)
+  const globalDeviation = Math.sqrt(overallVariance)
+  const localDrop = Math.max(9, Math.min(28, globalDeviation * .48))
+  for (let y = 1; y < height - 1; y++) for (let x = 1; x < width - 1; x++) {
+    const region = regionFor(x, y)
+    if (!region || y < upperLimit || y > lowerLimit || region.normalizedRadius < .05 || region.normalizedRadius > .97) continue
+    const value = data[y * width + x]
+    if (value > 238) continue
+    const mean = localMean(x, y)
+    if (mean - value >= localDrop && value < overallMean - globalDeviation * .18) objectMask[y * width + x] = 1
+  }
+
+  type RawCandidate = PatternCandidate & { score: number }
+  const visited = new Uint8Array(width * height)
+  const queue = new Int32Array(width * height)
+  const rawCandidates: RawCandidate[] = []
+  const minArea = Math.max(7, Math.round(irisRadius * irisRadius * .00022))
+  const maxArea = Math.max(120, Math.round(irisRadius * irisRadius * .055))
+  for (let start = 0; start < objectMask.length; start++) {
+    if (!objectMask[start] || visited[start]) continue
+    let head = 0, tail = 0
+    queue[tail++] = start
+    visited[start] = 1
+    let area = 0, perimeter = 0, sumX = 0, sumY = 0, sumXX = 0, sumYY = 0, sumXY = 0, sumValue = 0
+    let minX = width, maxX = 0, minY = height, maxY = 0
+    while (head < tail) {
+      const index = queue[head++]
+      const x = index % width, y = Math.floor(index / width)
+      area++; sumX += x; sumY += y; sumXX += x * x; sumYY += y * y; sumXY += x * y; sumValue += data[index]
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y)
+      const neighbours = [index - 1, index + 1, index - width, index + width]
+      for (const neighbour of neighbours) {
+        if (neighbour < 0 || neighbour >= objectMask.length || !objectMask[neighbour]) { perimeter++; continue }
+        if (!visited[neighbour]) { visited[neighbour] = 1; queue[tail++] = neighbour }
+      }
+    }
+    if (area < minArea || area > maxArea) continue
+    const centreX = sumX / area, centreY = sumY / area
+    const region = regionFor(Math.round(centreX), Math.round(centreY))
+    if (!region) continue
+    const covarianceX = Math.max(0, sumXX / area - centreX ** 2)
+    const covarianceY = Math.max(0, sumYY / area - centreY ** 2)
+    const covarianceXY = sumXY / area - centreX * centreY
+    const trace = covarianceX + covarianceY
+    const discriminant = Math.sqrt(Math.max(0, (covarianceX - covarianceY) ** 2 + 4 * covarianceXY ** 2))
+    const lambdaMajor = Math.max(.01, (trace + discriminant) / 2)
+    const lambdaMinor = Math.max(.01, (trace - discriminant) / 2)
+    const elongation = Math.sqrt(lambdaMajor / lambdaMinor)
+    const principalAngle = .5 * Math.atan2(2 * covarianceXY, covarianceX - covarianceY)
+    const principalX = Math.cos(principalAngle), principalY = Math.sin(principalAngle)
+    const radialAlignment = Math.abs(principalX * region.rx + principalY * region.ry)
+    const circularity = clamp01(4 * Math.PI * area / Math.max(1, perimeter ** 2))
+    const collaretteRadius = collarette[region.minuteIndex]?.radial_fraction ?? .42
+    const collaretteDistance = Math.abs(region.normalizedRadius - collaretteRadius)
+    const darkness = clamp01((localMean(Math.round(centreX), Math.round(centreY), 10) - sumValue / area) / 80)
+    const areaFraction = area / Math.max(1, Math.PI * irisRadius ** 2)
+    let className = "irregular dark-discontinuity candidate"
+    if (elongation >= 4 && radialAlignment >= .68) className = "radial furrow-like candidate"
+    else if (collaretteDistance <= .075 && elongation >= 1.7) className = "collarette-attached opening candidate"
+    else if (circularity >= .48 && elongation < 1.9) className = "rounded crypt-like opening candidate"
+    else if (elongation >= 2.15) className = "elongated lacuna-like opening candidate"
+    else if (areaFraction < .0035) className = "small crypt-like opening candidate"
+    const shapeEvidence = clamp01(.42 * darkness + .24 * Math.min(1, area / (minArea * 4)) + .18 * (className.includes("radial") ? radialAlignment : circularity) + .16 * (1 - Math.min(1, collaretteDistance)))
+    rawCandidates.push({
+      id: `candidate-${rawCandidates.length + 1}`,
+      class_name: className,
+      confidence_0_1: rounded(Math.min(.82, .32 + shapeEvidence * .52)),
+      centre_x_0_1: rounded(centreX / width), centre_y_0_1: rounded(centreY / height),
+      width_0_1: rounded((maxX - minX + 1) / width), height_0_1: rounded((maxY - minY + 1) / height),
+      radial_fraction: rounded(region.normalizedRadius), minute: region.minuteIndex,
+      area_fraction_of_iris: rounded(areaFraction), darkness_0_1: rounded(darkness),
+      elongation: rounded(elongation), circularity_0_1: rounded(circularity), radial_alignment_0_1: rounded(radialAlignment),
+      collarette_distance_0_1: rounded(collaretteDistance), configuration_size: 1,
+      score: shapeEvidence * Math.sqrt(area),
+    })
+  }
+  const patternCandidates = rawCandidates.sort((a, b) => b.score - a.score).slice(0, 36)
+  for (const candidate of patternCandidates) {
+    const neighbours = patternCandidates.filter(other => {
+      if (other === candidate) return false
+      const radialGap = Math.abs(other.radial_fraction - candidate.radial_fraction)
+      const minuteGap = Math.min(Math.abs(other.minute - candidate.minute), 60 - Math.abs(other.minute - candidate.minute))
+      return radialGap <= .13 && minuteGap <= 4
+    })
+    candidate.configuration_size = Math.min(3, 1 + neighbours.length)
+    if (candidate.configuration_size === 3 && candidate.class_name.includes("opening")) candidate.class_name = "clustered triple opening candidate"
+    else if (candidate.configuration_size === 2 && candidate.class_name.includes("opening")) candidate.class_name = "paired opening candidate"
+  }
+  const publicCandidates = patternCandidates.map(({ score: _score, ...candidate }) => candidate)
+
   const overallMetrics = finalize(overall)
   const zoneMetrics = zones.map((zone, index) => ({
     id: ["inner", "middle", "outer"][index],
@@ -311,7 +439,7 @@ export function measureAnnulus(data: Buffer, width: number, height: number, segm
   const strongestConcentricZone = [...zoneMetrics].sort((a, b) => b.concentric_structure_0_1 - a.concentric_structure_0_1)[0]
 
   return {
-    method: "polar-regional-orientation-0.4",
+    method: "polar-regional-orientation-plus-instance-mask-0.5",
     analysis_width_px: width,
     analysis_height_px: height,
     usable_annulus_fraction: overallMetrics.usable_fraction,
@@ -321,6 +449,13 @@ export function measureAnnulus(data: Buffer, width: number, height: number, segm
     radial_structure_0_1: overallMetrics.radial_structure_0_1,
     concentric_structure_0_1: overallMetrics.concentric_structure_0_1,
     dark_discontinuity_fraction_0_1: overallMetrics.dark_discontinuity_fraction_0_1,
+    pattern_candidates: publicCandidates,
+    pattern_candidate_summary: {
+      count: publicCandidates.length,
+      mask_method: "local-contrast connected components",
+      confidence_ceiling: .82,
+      limitation: "2D photometric candidates; crypt, lacuna, pigment and shadow are not ground-truth separated",
+    },
     regional_profile: {
       coordinate_system: "pupil-centred polar; clock sectors advance clockwise in displayed image",
       dark_threshold_0_255: rounded(darkThreshold),
