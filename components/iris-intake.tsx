@@ -45,7 +45,25 @@ type RegionalProfile = {
     strongest_concentric_zone: string
   }
 }
-type IrisMetric = Record<string, unknown> & { laterality: Side; regional_profile?: RegionalProfile }
+type PatternCandidate = {
+  id: string
+  class_name: string
+  confidence_0_1: number
+  centre_x_0_1: number
+  centre_y_0_1: number
+  width_0_1: number
+  height_0_1: number
+  radial_fraction: number
+  minute: number
+  area_fraction_of_iris: number
+  darkness_0_1: number
+  elongation: number
+  circularity_0_1: number
+  radial_alignment_0_1: number
+  collarette_distance_0_1: number
+  configuration_size: number
+}
+type IrisMetric = Record<string, unknown> & { laterality: Side; regional_profile?: RegionalProfile; pattern_candidates?: PatternCandidate[] }
 type Calibration = {
   irisCenterX: number
   irisCenterY: number
@@ -230,6 +248,42 @@ function evidenceConfidence(metric: IrisMetric) {
   return score >= .82 ? { label: "strong image evidence", score } : score >= .62 ? { label: "moderate image evidence", score } : { label: "limited image evidence", score }
 }
 
+function CandidateInstances({ metric, preview }: { metric: IrisMetric; preview: string | null }) {
+  const candidates = metric.pattern_candidates || []
+  const [selectedId, setSelectedId] = useState(candidates[0]?.id || "")
+  if (!preview || !candidates.length) return <div className="candidate-empty">No object candidate passed the conservative local-contrast and shape filters in this image.</div>
+  const selected = candidates.find(candidate => candidate.id === selectedId) || candidates[0]
+  return <section className="candidate-eye">
+    <header><span>{metric.laterality === "left" ? "LEFT · OS" : "RIGHT · OD"}</span><strong>{candidates.length} candidate instances</strong></header>
+    <div className="candidate-workspace">
+      <figure className="candidate-image">
+        <img src={preview} alt={`${metric.laterality} iris with experimental morphology candidate overlay`} />
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="Candidate object mask overlay">
+          {candidates.map((candidate, index) => <g key={candidate.id} className={candidate.id === selected.id ? "is-selected" : ""} onClick={() => setSelectedId(candidate.id)}>
+            <ellipse cx={candidate.centre_x_0_1 * 100} cy={candidate.centre_y_0_1 * 100} rx={Math.max(.8, candidate.width_0_1 * 54)} ry={Math.max(.8, candidate.height_0_1 * 54)} />
+            <text x={candidate.centre_x_0_1 * 100} y={candidate.centre_y_0_1 * 100}>{index + 1}</text>
+          </g>)}
+        </svg>
+      </figure>
+      <aside className="candidate-inspector">
+        <span>CANDIDATE {candidates.indexOf(selected) + 1} · {minuteName(selected.minute)}</span>
+        <h4>{selected.class_name}</h4>
+        <dl>
+          <div><dt>shape confidence</dt><dd>{percent(selected.confidence_0_1)}</dd></div>
+          <div><dt>configuration</dt><dd>{selected.configuration_size === 3 ? "triple cluster" : selected.configuration_size === 2 ? "paired" : "single"}</dd></div>
+          <div><dt>elongation</dt><dd>{selected.elongation.toFixed(2)}×</dd></div>
+          <div><dt>circularity</dt><dd>{percent(selected.circularity_0_1)}</dd></div>
+          <div><dt>radial alignment</dt><dd>{percent(selected.radial_alignment_0_1)}</dd></div>
+          <div><dt>local darkness</dt><dd>{percent(selected.darkness_0_1)}</dd></div>
+          <div><dt>collarette distance</dt><dd>{percent(selected.collarette_distance_0_1)}</dd></div>
+        </dl>
+        <p>The outline is a connected local-contrast component. Its name describes measured 2D shape—not anatomical depth, disease or organ state.</p>
+      </aside>
+    </div>
+    <div className="candidate-strip">{candidates.slice(0, 12).map((candidate, index) => <button key={candidate.id} type="button" className={candidate.id === selected.id ? "is-active" : ""} onClick={() => setSelectedId(candidate.id)}><b>{String(index + 1).padStart(2, "0")}</b><span>{candidate.class_name}</span><em>{percent(candidate.confidence_0_1)}</em></button>)}</div>
+  </section>
+}
+
 function RegionalMap({ metric }: { metric: IrisMetric }) {
   const profile = metric.regional_profile
   if (!profile?.cells?.length) return null
@@ -403,7 +457,7 @@ function BilateralComparison({ metrics }: { metrics: IrisMetric[] }) {
   const qualityGap = Math.abs(evidenceConfidence(left).score - evidenceConfidence(right).score)
 
   return <div className="result-section bilateral-result">
-    <div className="result-section-head"><div><span>05</span><h3>Bilateral descriptor comparison</h3></div><p>Right-eye sectors are mirrored before regional correspondence is calculated.</p></div>
+    <div className="result-section-head"><div><span>06</span><h3>Bilateral descriptor comparison</h3></div><p>Right-eye sectors are mirrored before regional correspondence is calculated.</p></div>
     <div className="bilateral-summary">
       <div><small>mirrored regional agreement</small><strong>{percent(mirroredSimilarity)}</strong><p>Internal descriptor agreement only—not an identity or health score.</p></div>
       <div><small>acquisition evidence gap</small><strong>{percent(qualityGap)}</strong><p>{qualityGap > .18 ? "Image quality differs enough to weaken direct comparison." : "Image evidence is sufficiently balanced for an exploratory comparison."}</p></div>
@@ -595,8 +649,18 @@ export function IrisIntake() {
       </div>
     </div>}
 
+    {result.metrics.some(metric => metric.pattern_candidates?.length) && <div className="result-section candidate-result">
+      <div className="result-section-head"><div><span>04</span><h3>Pattern candidate segmentation</h3></div><p>Local adaptive contrast → connected components → object shape and topology. Select an outline to inspect it.</p></div>
+      <div className="candidate-eyes">{result.metrics.map(metric => <CandidateInstances key={metric.laterality} metric={metric} preview={previews[metric.laterality]} />)}</div>
+      <div className="metric-legend">
+        <p><strong>Instance, not region</strong><span>Each outline is one connected photometric object rather than a label assigned to an entire clock sector.</span></p>
+        <p><strong>Shape family</strong><span>Elongation, circularity, radial alignment and collarette proximity drive the candidate name.</span></p>
+        <p><strong>Strict ceiling</strong><span>Confidence is capped because a single RGB photograph cannot establish tissue depth or separate every shadow and pigment feature.</span></p>
+      </div>
+    </div>}
+
     {result.metrics.some(metric => metric.regional_profile?.atlas_cells?.length) && <div className="result-section atlas-result">
-      <div className="result-section-head"><div><span>04</span><h3>Iris morphology atlas</h3></div><p>Six normalised radial bands × sixty angular minutes, with an image-derived collarette estimate.</p></div>
+      <div className="result-section-head"><div><span>05</span><h3>Iris morphology atlas</h3></div><p>Six normalised radial bands × sixty angular minutes, with an image-derived collarette estimate.</p></div>
       <div className="atlas-eyes">{result.metrics.map(metric => <TopographicAtlas key={metric.laterality} metric={metric} preview={previews[metric.laterality]} calibration={calibration[metric.laterality]} quality={quality[metric.laterality]} />)}</div>
       <div className="method-boundary atlas-boundary">
         <strong>TWO LAYERS, TWO CLAIM TYPES</strong>
@@ -607,7 +671,7 @@ export function IrisIntake() {
     <BilateralComparison metrics={result.metrics} />
 
     {result.metrics.some(metric => metric.regional_profile) && <div className="result-section narrative-result">
-      <div className="result-section-head"><div><span>06</span><h3>Extended morphology reading</h3></div><p>A deterministic account of measured spatial structure and its uncertainty—not a diagnosis.</p></div>
+      <div className="result-section-head"><div><span>07</span><h3>Extended morphology reading</h3></div><p>A deterministic account of measured spatial structure and its uncertainty—not a diagnosis.</p></div>
       <div className="narrative-grid">{result.metrics.map(metric => <EyeNarrative key={metric.laterality} metric={metric} />)}</div>
       <div className="method-boundary">
         <strong>WHAT THIS PIPELINE CAN AND CANNOT SAY</strong>
