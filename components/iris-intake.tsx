@@ -4,6 +4,38 @@ import { FormEvent, useMemo, useRef, useState } from "react"
 
 type Quality = { width: number; height: number; brightness: number; glare: number; sharpness: number }
 type Side = "left" | "right"
+type RegionMetric = {
+  id?: string
+  label?: string
+  radial_range?: string
+  zone?: string
+  clock?: number
+  usable_px: number
+  usable_fraction: number
+  mean_luminance_0_1: number
+  contrast_0_1: number
+  entropy_0_1: number
+  fine_detail_energy_0_1: number
+  radial_structure_0_1: number
+  concentric_structure_0_1: number
+  dark_discontinuity_fraction_0_1: number
+  texture_complexity_0_1: number
+}
+type RegionalProfile = {
+  coordinate_system: string
+  dark_threshold_0_255: number
+  zones: RegionMetric[]
+  sectors: RegionMetric[]
+  cells: RegionMetric[]
+  summary: {
+    angular_heterogeneity_0_1: number
+    dominant_texture_sectors: number[]
+    inner_outer_luminance_delta: number
+    strongest_radial_zone: string
+    strongest_concentric_zone: string
+  }
+}
+type IrisMetric = Record<string, unknown> & { laterality: Side; regional_profile?: RegionalProfile }
 type Calibration = {
   irisCenterX: number
   irisCenterY: number
@@ -85,6 +117,123 @@ function Control({ label, value, min, max, unit = "%", onChange }: { label: stri
   </label>
 }
 
+const numberValue = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0
+const percent = (value: unknown, digits = 0) => `${(numberValue(value) * 100).toFixed(digits)}%`
+const zoneName = (value: string) => value === "inner" ? "inner / pupillary" : value === "middle" ? "middle / stromal" : "outer / peripheral"
+const clockName = (value: number) => `${value} o’clock`
+
+function evidenceConfidence(metric: IrisMetric) {
+  const usable = numberValue(metric.usable_annulus_fraction)
+  const glare = numberValue(metric.glare_fraction)
+  const sharpness = numberValue(metric.laplacian_abs_mean)
+  const score = .5 * usable + .25 * Math.max(0, 1 - glare / .16) + .25 * Math.min(1, sharpness / 18)
+  return score >= .82 ? { label: "strong image evidence", score } : score >= .62 ? { label: "moderate image evidence", score } : { label: "limited image evidence", score }
+}
+
+function RegionalMap({ metric }: { metric: IrisMetric }) {
+  const profile = metric.regional_profile
+  if (!profile?.cells?.length) return null
+  const clocks = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+  const zones = ["inner", "middle", "outer"]
+  return <div className="regional-map-wrap">
+    <div className="regional-map-head"><strong>{metric.laterality === "left" ? "LEFT · OS" : "RIGHT · OD"}</strong><span>relative texture complexity · 36 measured regions</span></div>
+    <div className="regional-map" role="table" aria-label={`${metric.laterality} iris regional texture map`}>
+      <div className="regional-corner" role="columnheader">ZONE / CLOCK</div>
+      {clocks.map(clock => <div key={clock} className="regional-clock" role="columnheader">{clock}</div>)}
+      {zones.map(zone => <div className="regional-map-row" role="row" key={zone}>
+        <div className="regional-zone-label" role="rowheader">{zone}</div>
+        {clocks.map(clock => {
+          const cell = profile.cells.find(candidate => candidate.zone === zone && candidate.clock === clock)
+          const value = cell?.texture_complexity_0_1 ?? 0
+          const usable = cell?.usable_fraction ?? 0
+          return <div
+            key={clock}
+            className={`regional-cell ${usable < .2 ? "is-limited" : ""}`}
+            role="cell"
+            title={`${zoneName(zone)}, ${clockName(clock)}: texture ${percent(value)}, usable ${percent(usable)}`}
+            style={{ backgroundColor: `rgba(191,255,39,${Math.max(.06, Math.min(.92, value))})` }}
+          ><span>{Math.round(value * 100)}</span></div>
+        })}
+      </div>)}
+    </div>
+    <p className="map-caption">Each cell is a pupil-centred radial band × clock sector. Dark hatching means the region has limited unmasked pixels.</p>
+  </div>
+}
+
+function ZoneProfile({ metric }: { metric: IrisMetric }) {
+  const zones = metric.regional_profile?.zones
+  if (!zones?.length) return null
+  return <div className="zone-profile">
+    {zones.map(zone => <article key={zone.id} className="zone-card">
+      <header><span>{zone.radial_range}</span><h4>{zone.label}</h4></header>
+      <dl>
+        <div><dt>texture complexity</dt><dd>{percent(zone.texture_complexity_0_1)}</dd></div>
+        <div><dt>entropy</dt><dd>{zone.entropy_0_1.toFixed(3)}</dd></div>
+        <div><dt>contrast</dt><dd>{zone.contrast_0_1.toFixed(3)}</dd></div>
+        <div><dt>radial orientation</dt><dd>{zone.radial_structure_0_1.toFixed(3)}</dd></div>
+        <div><dt>concentric orientation</dt><dd>{zone.concentric_structure_0_1.toFixed(3)}</dd></div>
+        <div><dt>dark discontinuity</dt><dd>{percent(zone.dark_discontinuity_fraction_0_1, 1)}</dd></div>
+      </dl>
+    </article>)}
+  </div>
+}
+
+function EyeNarrative({ metric }: { metric: IrisMetric }) {
+  const profile = metric.regional_profile
+  if (!profile) return null
+  const evidence = evidenceConfidence(metric)
+  const zones = profile.zones
+  const mostComplex = [...zones].sort((a, b) => b.texture_complexity_0_1 - a.texture_complexity_0_1)[0]
+  const leastComplex = [...zones].sort((a, b) => a.texture_complexity_0_1 - b.texture_complexity_0_1)[0]
+  const darkZone = [...zones].sort((a, b) => b.dark_discontinuity_fraction_0_1 - a.dark_discontinuity_fraction_0_1)[0]
+  const dominant = profile.summary.dominant_texture_sectors.map(clockName).join(", ") || "no sufficiently exposed sector"
+  const luminanceDirection = profile.summary.inner_outer_luminance_delta > .035
+    ? "The outer band is lighter than the inner band in this photograph."
+    : profile.summary.inner_outer_luminance_delta < -.035
+      ? "The outer band is darker than the inner band in this photograph."
+      : "Inner-to-outer mean luminance is comparatively even in this photograph."
+
+  return <article className="narrative-eye">
+    <header><span>{metric.laterality === "left" ? "OS / LEFT" : "OD / RIGHT"}</span><strong>{evidence.label} · internal score {Math.round(evidence.score * 100)}/100</strong></header>
+    <p><b>Regional distribution.</b> The {mostComplex.label} band carries the strongest combined texture signal; the {leastComplex.label} band is comparatively quieter. This is a within-image comparison, not a population percentile.</p>
+    <p><b>Directional organisation.</b> Radial orientation is strongest in the {zoneName(profile.summary.strongest_radial_zone)} band, while concentric orientation is strongest in the {zoneName(profile.summary.strongest_concentric_zone)} band. The most texture-rich clock sectors are {dominant}.</p>
+    <p><b>Angular irregularity.</b> Sector-to-sector heterogeneity is {percent(profile.summary.angular_heterogeneity_0_1)} on this exploratory scale. It measures uneven distribution around the annulus; it does not by itself identify a crypt, furrow, vessel or lesion.</p>
+    <p><b>Luminance and dark interruptions.</b> {luminanceDirection} The largest fraction of locally dark pixels occurs in the {darkZone.label} band ({percent(darkZone.dark_discontinuity_fraction_0_1, 1)}). Pigment, stromal openings, shadows and residual occlusion can all contribute, so the detector deliberately keeps the label non-specific.</p>
+  </article>
+}
+
+function BilateralComparison({ metrics }: { metrics: IrisMetric[] }) {
+  const left = metrics.find(metric => metric.laterality === "left")
+  const right = metrics.find(metric => metric.laterality === "right")
+  if (!left?.regional_profile || !right?.regional_profile) return null
+  const descriptors = [
+    ["Texture entropy", numberValue(left.texture_entropy_0_1), numberValue(right.texture_entropy_0_1)],
+    ["Contrast", numberValue(left.luminance_contrast_0_1), numberValue(right.luminance_contrast_0_1)],
+    ["Radial structure", numberValue(left.radial_structure_0_1), numberValue(right.radial_structure_0_1)],
+    ["Concentric structure", numberValue(left.concentric_structure_0_1), numberValue(right.concentric_structure_0_1)],
+    ["Dark discontinuity", numberValue(left.dark_discontinuity_fraction_0_1), numberValue(right.dark_discontinuity_fraction_0_1)],
+    ["Angular heterogeneity", left.regional_profile.summary.angular_heterogeneity_0_1, right.regional_profile.summary.angular_heterogeneity_0_1],
+  ] as Array<[string, number, number]>
+  const mirrorClock = (clock: number) => clock === 12 || clock === 6 ? clock : 12 - clock
+  const divergences = left.regional_profile.cells.map(leftCell => {
+    const rightCell = right.regional_profile!.cells.find(cell => cell.zone === leftCell.zone && cell.clock === mirrorClock(leftCell.clock ?? 12))
+    return { zone: leftCell.zone || "", clock: leftCell.clock || 12, delta: Math.abs(leftCell.texture_complexity_0_1 - (rightCell?.texture_complexity_0_1 ?? 0)) }
+  }).sort((a, b) => b.delta - a.delta)
+  const usableDivergences = divergences.filter(item => item.delta > 0).slice(0, 5)
+  const mirroredSimilarity = 1 - divergences.reduce((sum, item) => sum + item.delta, 0) / Math.max(1, divergences.length)
+  const qualityGap = Math.abs(evidenceConfidence(left).score - evidenceConfidence(right).score)
+
+  return <div className="result-section bilateral-result">
+    <div className="result-section-head"><div><span>04</span><h3>Bilateral descriptor comparison</h3></div><p>Right-eye sectors are mirrored before regional correspondence is calculated.</p></div>
+    <div className="bilateral-summary">
+      <div><small>mirrored regional agreement</small><strong>{percent(mirroredSimilarity)}</strong><p>Internal descriptor agreement only—not an identity or health score.</p></div>
+      <div><small>acquisition evidence gap</small><strong>{percent(qualityGap)}</strong><p>{qualityGap > .18 ? "Image quality differs enough to weaken direct comparison." : "Image evidence is sufficiently balanced for an exploratory comparison."}</p></div>
+    </div>
+    <div className="table-scroll"><table className="evidence-table"><thead><tr><th>Descriptor</th><th>Left</th><th>Right</th><th>Absolute Δ</th></tr></thead><tbody>{descriptors.map(([label, a, b]) => <tr key={label}><td>{label}</td><td>{a.toFixed(3)}</td><td>{b.toFixed(3)}</td><td>{Math.abs(a - b).toFixed(3)}</td></tr>)}</tbody></table></div>
+    <div className="divergence-list"><strong>Largest mirrored regional differences</strong><div>{usableDivergences.map(item => <span key={`${item.zone}-${item.clock}`}>{zoneName(item.zone)} · {clockName(item.clock)} <b>Δ {item.delta.toFixed(3)}</b></span>)}</div></div>
+  </div>
+}
+
 function EyeCalibrator({ side, file, preview, quality, calibration, confirmed, error, onChoose, onCalibration, onConfirm, inputRef }: {
   side: Side
   file: File | null
@@ -149,7 +298,7 @@ export function IrisIntake() {
   const [sideErrors, setSideErrors] = useState<Record<Side, string>>({ left: "", right: "" })
   const [phase, setPhase] = useState<"idle" | "opening" | "uploading" | "finalising" | "done">("idle")
   const [error, setError] = useState("")
-  const [result, setResult] = useState<{ reference: string; metrics: Array<Record<string, unknown>> } | null>(null)
+  const [result, setResult] = useState<{ reference: string; metrics: IrisMetric[] } | null>(null)
   const idempotency = useRef(crypto.randomUUID())
   const inputRefs = { left: useRef<HTMLInputElement>(null), right: useRef<HTMLInputElement>(null) }
   const busy = phase !== "idle" && phase !== "done"
@@ -221,7 +370,7 @@ export function IrisIntake() {
       }
       setPhase("finalising")
       const completed = await json("/api/intake/complete", { submissionId: opened.submissionId })
-      setResult({ reference: completed.reference, metrics: completed.acquisitionMetrics || [] }); setPhase("done")
+      setResult({ reference: completed.reference, metrics: (completed.acquisitionMetrics || []) as IrisMetric[] }); setPhase("done")
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Submission failed."); setPhase("idle") }
   }
 
@@ -252,8 +401,34 @@ export function IrisIntake() {
       </div>
     </div>
 
+    {result.metrics.some(metric => metric.regional_profile) && <div className="result-section regional-result">
+      <div className="result-section-head"><div><span>03</span><h3>Polar regional morphology</h3></div><p>Three radial bands × twelve clock sectors. Values are computed separately for each eye.</p></div>
+      <div className="regional-eyes">
+        {result.metrics.map(metric => <section key={metric.laterality} className="regional-eye">
+          <RegionalMap metric={metric} />
+          <ZoneProfile metric={metric} />
+        </section>)}
+      </div>
+      <div className="metric-legend regional-legend">
+        <p><strong>Texture complexity</strong><span>Composite display index from entropy, local contrast, fine-detail energy and directional organisation.</span></p>
+        <p><strong>Dark discontinuity</strong><span>Pixels below an image-adaptive luminance threshold. It is deliberately not labelled as pigment, crypt or pathology.</span></p>
+        <p><strong>Clock coordinates</strong><span>Image-relative sectors: 12 is superior, 3 is image-right, 6 is inferior and 9 is image-left.</span></p>
+      </div>
+    </div>}
+
+    <BilateralComparison metrics={result.metrics} />
+
+    {result.metrics.some(metric => metric.regional_profile) && <div className="result-section narrative-result">
+      <div className="result-section-head"><div><span>05</span><h3>Extended morphology reading</h3></div><p>A deterministic account of measured spatial structure and its uncertainty—not a diagnosis.</p></div>
+      <div className="narrative-grid">{result.metrics.map(metric => <EyeNarrative key={metric.laterality} metric={metric} />)}</div>
+      <div className="method-boundary">
+        <strong>WHAT THIS PIPELINE CAN AND CANNOT SAY</strong>
+        <p>It can locate where texture, contrast and directional organisation concentrate in this photograph. It cannot yet distinguish stromal crypts from pigment/shadow, confirm contraction furrows, reconstruct transient fetal vessels, or infer organs, disease, personality or developmental cause. Those claims require labelled datasets, repeat-image reliability and external validation.</p>
+      </div>
+    </div>}
+
     <div className="status success">Immediate image measurement completed. Your original images and calibration remain stored under the consent choices you selected.</div>
-    <div className="status">Crypt, furrow and vascular-network detection is a separate validation stage. The site does not invent those labels from an unvalidated detector.</div>
+    <div className="status">Regional descriptors are complete. Crypt, furrow and vascular-network classification remains a separate validation stage; this report does not invent those anatomical labels from a non-specific image signal.</div>
     <section className="interpretation-cta" aria-labelledby="interpretation-title">
       <div><span>OPTIONAL RESEARCHER REVIEW</span><h3 id="interpretation-title">What could these measurements mean?</h3><p>Send this result and a specific question for a human interpretation of the visible morphology, uncertainty and model limits. No diagnosis or organ mapping.</p></div>
       <a className="btn primary" href={`/review?reference=${encodeURIComponent(result.reference)}`}>Request interpretation · $170</a>
