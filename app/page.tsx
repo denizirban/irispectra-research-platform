@@ -8,31 +8,23 @@ export default function Home() {
       <SiteHeader />
       <section className="hero">
         <div className="hero-copy">
-          <div>
-            <p className="eyebrow">IRIS MORPHOLOGY · EXPERIMENTAL RESEARCH PLATFORM</p>
-            <h1>Measure the pattern. Test the mechanism.</h1>
-          </div>
-          <div>
+          <p className="eyebrow"><span className="status-dot" />IRISPECTRA · MEASUREMENT RESEARCH</p>
+          <h1>What can an eye image actually measure?</h1>
+          <div className="hero-lower">
             <p className="dek">
-              Irispectra separates what an image can measure from what a developmental model can only propose.
-              Upload an iris for structural quantification, run a separate pupil-response protocol, or join the
-              morphogenesis study.
+              Three programmes examine three different signals: visible iris structure, pupil response over time,
+              and the developmental mechanisms that may produce individual morphology.
             </p>
             <div className="button-row">
               <Link className="btn primary" href="/analyze">Start free iris measurement</Link>
-              <Link className="btn" href="/pupillometry">Open pupillometry protocol</Link>
+              <Link className="text-link" href="/methods/vision">Read the measurement protocol</Link>
             </div>
           </div>
-        </div>
-        <div className="iris-stage" aria-label="Abstract structural iris diagram">
-          <div className="iris-orbit">
-            <span className="orbit-label a">annular domain</span>
-            <span className="orbit-label b">θ × r field</span>
-          </div>
+          <p className="hero-meta">THREE INDEPENDENT DATA TYPES · VERSIONED METHODS · NON-DIAGNOSTIC RESEARCH</p>
         </div>
       </section>
 
-      <section className="section" id="method">
+      <section className="section" id="science">
         <div className="section-head">
           <div>
             <p className="eyebrow">THREE QUESTIONS · THREE DATA TYPES</p>
@@ -51,8 +43,8 @@ export default function Home() {
           </article>
           <article className="method-card">
             <span className="index">02 / DYNAMICS</span>
-            <div><h3>Pupillometry</h3><p>Records change over time under a controlled visual stimulus. It measures response dynamics, not iris personality or organ health.</p></div>
-            <Link href="/pupillometry">run protocol →</Link>
+            <div><h3>Pupil Tracking Prototype</h3><p>Tracks a pupil-width proxy through baseline, light exposure and recovery. Timing, tracking confidence and the full trace remain visible.</p></div>
+            <Link href="/pupillometry">open prototype →</Link>
           </article>
           <article className="method-card">
             <span className="index">03 / DEVELOPMENT</span>
@@ -60,6 +52,11 @@ export default function Home() {
             <Link href="/lab">open simulator →</Link>
           </article>
         </div>
+      </section>
+
+      <section className="protocol-callout">
+        <div><p className="eyebrow">COMPUTER VISION · VALIDATION PROTOCOL</p><h2>From pixels to pattern—without skipping the proof.</h2></div>
+        <div><p>Acquisition quality, anatomy segmentation, polar normalisation, collarette tracing, object masks, shape topology, uncertainty and participant-level validation are treated as separate gates.</p><Link className="text-link" href="/methods/vision">Open the full vision pipeline →</Link></div>
       </section>
 
       <section className="evidence-lab" aria-labelledby="evidence-lab-title">
