@@ -62,6 +62,38 @@ export default function Home() {
         </div>
       </section>
 
+      <section className="evidence-lab" aria-labelledby="evidence-lab-title">
+        <div className="evidence-lab-copy">
+          <p className="eyebrow">MEASUREMENT MODEL · EVIDENCE LEDGER</p>
+          <h2 id="evidence-lab-title">One eye is not one kind of evidence.</h2>
+          <p className="evidence-dek">
+            Iris surface morphology, pupil dynamics, external-eye photographs and retinal fundus images are
+            different modalities. Irispectra keeps their measurements, datasets and claims separate.
+          </p>
+          <div className="modality-ledger">
+            <div><span>IRIS SURFACE</span><p>Visible crypts, furrows, pigmentation, collarette geometry and texture topology.</p><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC5808257/" target="_blank" rel="noreferrer">population morphology study ↗</a></div>
+            <div><span>EXTERNAL EYE</span><p>Research models have tested disease-associated signals in photographs of the external eye; this is not an iris organ map.</p><a href="https://www.nature.com/articles/s41551-022-00880-8" target="_blank" rel="noreferrer">Nature Biomedical Engineering ↗</a></div>
+            <div><span>RETINAL FUNDUS</span><p>Retinal photographs have been used to predict cardiovascular risk factors. A fundus photograph is not an iris photograph.</p><a href="https://www.nature.com/articles/s41551-018-0195-0" target="_blank" rel="noreferrer">Nature Biomedical Engineering ↗</a></div>
+          </div>
+        </div>
+        <div className="benchmark-panel">
+          <p className="eyebrow">PUBLISHED PERFORMANCE · TASK-SPECIFIC</p>
+          <div className="benchmark-list">
+            <div><header><span>NIST iris boundary localisation</span><b>99.3%</b></header><i><span style={{ width: "99.3%" }} /></i><a href="https://nvlpubs.nist.gov/nistpubs/ir/2024/NIST.IR.8516.pdf" target="_blank" rel="noreferrer">NISTIR 8516 ↗</a></div>
+            <div><header><span>Expert crypt agreement</span><b>κ 0.775</b></header><i><span style={{ width: "77.5%" }} /></i><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC4277759/" target="_blank" rel="noreferrer">ophthalmic grading study ↗</a></div>
+            <div><header><span>Expert furrow agreement</span><b>κ 0.836</b></header><i><span style={{ width: "83.6%" }} /></i><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC4277759/" target="_blank" rel="noreferrer">ophthalmic grading study ↗</a></div>
+            <div><header><span>Published crypt-frequency classifier</span><b>80.0%</b></header><i><span style={{ width: "80%" }} /></i><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC7505790/" target="_blank" rel="noreferrer">Mask R-CNN + SVM study ↗</a></div>
+          </div>
+          <div className="evidence-facts">
+            <div><strong>60′</strong><span>angular coordinates</span></div>
+            <div><strong>6</strong><span>radial bands</span></div>
+            <div><strong>OD / OS</strong><span>eyes measured independently</span></div>
+            <div><strong>4</strong><span>evidence states</span></div>
+          </div>
+          <p className="benchmark-boundary">Published values describe the cited task and dataset. They are not automatically the performance of Irispectra.</p>
+        </div>
+      </section>
+
       <section className="lab-panel" id="lab">
         <div>
           <p className="eyebrow">IRIS MORPHOGENESIS LAB · OPEN QUESTION</p>
