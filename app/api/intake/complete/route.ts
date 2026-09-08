@@ -23,11 +23,11 @@ export async function POST(req: NextRequest) {
     // remain queued for any later researcher review. Check the run directly so
     // a retry after a partial failure never creates duplicate analysis rows.
     const runs = await db<Array<{ id: string }>>(
-      `analysis_runs?submission_id=eq.${submissionId}&model_family=eq.annular-image-descriptors&model_version=eq.0.2&select=id&limit=1`,
+      `analysis_runs?submission_id=eq.${submissionId}&model_family=eq.polar-regional-image-descriptors&model_version=eq.0.3&select=id&limit=1`,
     )
     const createdRun = !runs[0]
     if (createdRun) {
-      await insert("analysis_runs", { submission_id: submissionId, status: "completed", completed_at: new Date().toISOString(), model_family: "annular-image-descriptors", model_version: "0.2", pipeline_version: "2026-09-07", diagnostics: { scope: "non-diagnostic immediate structural measurements" } })
+      await insert("analysis_runs", { submission_id: submissionId, status: "completed", completed_at: new Date().toISOString(), model_family: "polar-regional-image-descriptors", model_version: "0.3", pipeline_version: "2026-09-07-regional", diagnostics: { scope: "non-diagnostic polar regional structural measurements", grid: "3 radial zones x 12 clock sectors" } })
     }
     if (submission.status !== "queued") {
       await update(`submissions?id=eq.${submissionId}`, { status: "queued" })
